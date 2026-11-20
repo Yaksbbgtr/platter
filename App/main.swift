@@ -705,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if np.artworkVersion != lastArtworkVersion {
             lastArtworkVersion = np.artworkVersion
             try? FileManager.default.createDirectory(at: PlayerState.directory, withIntermediateDirectories: true)
-            if let art = np.artwork, let jpeg = Self.jpeg(art, side: 320) { try? jpeg.write(to: PlayerState.artworkURL, options: .atomic) }
+            if let art = np.artwork, let jpeg = Self.jpeg(art, side: 200) { try? jpeg.write(to: PlayerState.artworkURL, options: .atomic) }
             else { try? FileManager.default.removeItem(at: PlayerState.artworkURL) }
         }
         st.artworkID = np.artwork == nil ? nil : String(np.artworkVersion)

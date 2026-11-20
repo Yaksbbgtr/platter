@@ -79,9 +79,11 @@ struct DeckProvider: AppIntentTimelineProvider {
         guard st.hasTrack && st.playing else {
             return Timeline(entries: [entry(st, art: art, skin: skin, at: now, spin: 0)], policy: .never)
         }
-        // About two minutes of turning (less if the song ends sooner); then WidgetKit asks again.
-        let remaining = st.duration > 0 ? max(Self.step, st.duration - st.live(at: now)) : 120
-        let count = Int(min(120, remaining) / Self.step) + 1
+        // About a minute of turning (less if the song ends sooner); then WidgetKit asks again. macOS
+        // rejects a timeline whose archive gets too big and leaves the widget on its placeholder,
+        // which the Large size hit with two minutes of entries.
+        let remaining = st.duration > 0 ? max(Self.step, st.duration - st.live(at: now)) : 60
+        let count = Int(min(60, remaining) / Self.step) + 1
         let base = (now.timeIntervalSince1970 / Self.step * Self.turn).truncatingRemainder(dividingBy: 360)
         let entries = (0..<count).map { i in
             entry(st, art: art, skin: skin, at: now.addingTimeInterval(Double(i) * Self.step), spin: base + Double(i) * Self.turn)
@@ -161,9 +163,12 @@ struct WidgetProgress: View {
             if showTimes {
                 HStack {
                     if state.playing && state.duration > 0 {
+                        // Live timer text fills its whole frame, so pin each one to its own side.
                         Text(timerInterval: start...end, countsDown: false)
-                        Spacer()
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Text(timerInterval: start...end, countsDown: true)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     } else {
                         Text(formatTime(pos))
                         Spacer()
@@ -257,6 +262,7 @@ struct PlatterWidgetView: View {
                 }
             }
         }
+        .unredacted()
         .containerBackground(for: .widget) {
             PlinthBackground(palette: palette, shape: Rectangle())
         }

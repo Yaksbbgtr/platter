@@ -208,9 +208,9 @@ struct DiscView: View {
                     Circle().fill(RadialGradient(colors: [Color(white: 0.09), Color(white: 0.04)], center: .center,
                                                  startRadius: labelR, endRadius: R))
                 }
-                ForEach(0..<32, id: \.self) { i in
-                    let r = inner + (outer - inner) * CGFloat(i) / 31
-                    Circle().stroke(Color.white.opacity(i % 4 == 0 ? 0.06 : 0.035), lineWidth: 0.6).frame(width: r * 2, height: r * 2)
+                ForEach(0..<20, id: \.self) { i in
+                    let r = inner + (outer - inner) * CGFloat(i) / 19
+                    Circle().stroke(Color.white.opacity(i % 3 == 0 ? 0.065 : 0.04), lineWidth: 0.7).frame(width: r * 2, height: r * 2)
                 }
                 ForEach([0.18, 0.39, 0.57, 0.76] as [CGFloat], id: \.self) { f in
                     let r = inner + (outer - inner) * f
