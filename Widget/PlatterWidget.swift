@@ -151,15 +151,19 @@ struct WidgetProgress: View {
         let start = date.addingTimeInterval(-pos)
         let end = start.addingTimeInterval(max(state.duration, 1))
         VStack(spacing: 3) {
-            Group {
-                if state.playing && state.duration > 0 {
-                    ProgressView(timerInterval: start...end, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
-                } else {
-                    ProgressView(value: state.duration > 0 ? min(1, pos / state.duration) : 0)
+            // A drawn bar rather than ProgressView: in clear/monochrome widget mode macOS paints
+            // ProgressView's track and fill the same white, so it always looked full. The fill
+            // follows the timeline entries (every 2 s) and glides linearly between them.
+            let fraction = state.duration > 0 ? min(1, max(0, pos / state.duration)) : 0
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(palette.track)
+                    Capsule().fill(palette.accent)
+                        .frame(width: max(4, g.size.width * fraction))
+                        .animation(.linear(duration: DeckProvider.step), value: fraction)
                 }
             }
-            .progressViewStyle(.linear)
-            .tint(palette.accent)
+            .frame(height: 4)
             if showTimes {
                 HStack {
                     if state.playing && state.duration > 0 {
