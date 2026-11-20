@@ -62,7 +62,9 @@ struct DeckProvider: AppIntentTimelineProvider {
     static let step: TimeInterval = 2
     static let turn: Double = 90
 
-    func placeholder(in context: Context) -> DeckEntry { entry(PlayerState(), art: nil, skin: .walnut, at: .now, spin: 0) }
+    func placeholder(in context: Context) -> DeckEntry {
+        entry(PlayerState(), art: nil, skin: .walnut, at: .now, spin: SpinClock.angle(at: .now))
+    }
 
     func snapshot(for config: PlatterConfig, in context: Context) async -> DeckEntry {
         var st = PlayerState.load()
@@ -70,23 +72,24 @@ struct DeckProvider: AppIntentTimelineProvider {
             st.source = "Music"; st.title = "Golden Hour Static"; st.artist = "The Low Orbits"
             st.duration = 214; st.position = 88; st.playing = true
         }
-        return entry(st, art: st.loadArtwork(), skin: skin(config, st), at: .now, spin: 0)
+        return entry(st, art: st.loadArtwork(), skin: skin(config, st), at: .now, spin: SpinClock.angle(at: .now))
     }
 
     func timeline(for config: PlatterConfig, in context: Context) async -> Timeline<DeckEntry> {
         let st = PlayerState.load(), art = st.loadArtwork(), skin = skin(config, st)
         let now = Date()
-        guard st.hasTrack && st.playing else {
-            return Timeline(entries: [entry(st, art: art, skin: skin, at: now, spin: 0)], policy: .never)
+        let playing = st.hasTrack && st.playing
+        let start = SpinClock.restart(at: now, playing: playing)
+        guard playing else {
+            return Timeline(entries: [entry(st, art: art, skin: skin, at: now, spin: start)], policy: .never)
         }
         // About a minute of turning (less if the song ends sooner); then WidgetKit asks again. macOS
         // rejects a timeline whose archive gets too big and leaves the widget on its placeholder,
         // which the Large size hit with two minutes of entries.
         let remaining = st.duration > 0 ? max(Self.step, st.duration - st.live(at: now)) : 60
         let count = Int(min(60, remaining) / Self.step) + 1
-        let base = (now.timeIntervalSince1970 / Self.step * Self.turn).truncatingRemainder(dividingBy: 360)
         let entries = (0..<count).map { i in
-            entry(st, art: art, skin: skin, at: now.addingTimeInterval(Double(i) * Self.step), spin: base + Double(i) * Self.turn)
+            entry(st, art: art, skin: skin, at: now.addingTimeInterval(Double(i) * Self.step), spin: start + Double(i) * Self.turn)
         }
         return Timeline(entries: entries, policy: .atEnd)
     }
@@ -98,6 +101,29 @@ struct DeckProvider: AppIntentTimelineProvider {
     private func entry(_ st: PlayerState, art: NSImage?, skin: Skin, at date: Date, spin: Double) -> DeckEntry {
         DeckEntry(date: date, state: st, artwork: art, skin: skin, spin: spin,
                   arm: armAngle(playing: st.playing, hasTrack: st.hasTrack, position: st.live(at: date), duration: st.duration))
+    }
+}
+
+/// The record's angle, kept continuous across timelines. Each new timeline starts from wherever the
+/// last one had got to (angles only ever grow), so a reload never spins the record back, and a
+/// paused record resumes from where it stopped. Stored in the widget's own defaults.
+enum SpinClock {
+    private static let defaults = UserDefaults.standard
+    private static var rate: Double { DeckProvider.turn / DeckProvider.step }   // degrees per second
+
+    static func angle(at date: Date) -> Double {
+        let base = defaults.double(forKey: "spinBase"), since = defaults.double(forKey: "spinSince")
+        guard since > 0, defaults.bool(forKey: "spinPlaying") else { return base }
+        return base + max(0, date.timeIntervalSince1970 - since) * rate
+    }
+
+    /// Freezes the current angle as the new starting point and returns it.
+    static func restart(at date: Date, playing: Bool) -> Double {
+        let a = angle(at: date)
+        defaults.set(a, forKey: "spinBase")
+        defaults.set(date.timeIntervalSince1970, forKey: "spinSince")
+        defaults.set(playing, forKey: "spinPlaying")
+        return a
     }
 }
 
