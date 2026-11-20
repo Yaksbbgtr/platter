@@ -4,6 +4,7 @@
 
 import AppKit
 import SwiftUI
+import WidgetKit
 
 enum Skin: String, CaseIterable {
     case walnut, midnight, arctic, album
@@ -47,6 +48,18 @@ struct Palette {
     var top: Color, bottom: Color, text: Color, secondary: Color, accent: Color, button: Color, track: Color
     var wood = false
     var rimLight: Color = Color(white: 0.86), rimDark: Color = Color(white: 0.45)
+    /// Desktop widgets in monochrome / "clear" mode (another app in front, or that widget style chosen):
+    /// macOS paints every view as a white silhouette of its opacity, so the deck is drawn with
+    /// translucent whites instead of solid colours, and without shadows (which would glow).
+    var mono = false
+
+    static let monochrome = Palette(top: .clear, bottom: .clear, text: .white, secondary: .white.opacity(0.6), accent: .white,
+                                    button: .white.opacity(0.16), track: .white.opacity(0.2),
+                                    rimLight: .white.opacity(0.55), rimDark: .white.opacity(0.3), mono: true)
+
+    var shadow: Color { mono ? .clear : .black }
+    var playFill: Color { mono ? .white.opacity(0.28) : accent }
+    var playIcon: Color { mono ? .white : (wood || text == .white ? .black.opacity(0.8) : .white) }
 
     static func make(_ skin: Skin, art: NSColor?) -> Palette {
         let artAccent = art.map { Color($0.hsb(s: { max($0, 0.45) }, b: { min(max($0, 0.7), 0.95) })) }
@@ -189,24 +202,28 @@ struct DiscView: View {
             let labelR = R * Deck.labelRadius / Deck.radius
             let inner = labelR * 1.12, outer = R * 0.975
             ZStack {
-                Circle().fill(RadialGradient(colors: [Color(white: 0.09), Color(white: 0.04)], center: .center,
-                                             startRadius: labelR, endRadius: R))
+                if palette.mono {
+                    Circle().fill(Color.white.opacity(0.1))
+                } else {
+                    Circle().fill(RadialGradient(colors: [Color(white: 0.09), Color(white: 0.04)], center: .center,
+                                                 startRadius: labelR, endRadius: R))
+                }
                 ForEach(0..<32, id: \.self) { i in
                     let r = inner + (outer - inner) * CGFloat(i) / 31
                     Circle().stroke(Color.white.opacity(i % 4 == 0 ? 0.06 : 0.035), lineWidth: 0.6).frame(width: r * 2, height: r * 2)
                 }
                 ForEach([0.18, 0.39, 0.57, 0.76] as [CGFloat], id: \.self) { f in
                     let r = inner + (outer - inner) * f
-                    Circle().stroke(Color.black.opacity(0.75), lineWidth: 1.8).frame(width: r * 2, height: r * 2)
+                    Circle().stroke(palette.mono ? Color.white.opacity(0.12) : Color.black.opacity(0.75), lineWidth: 1.8).frame(width: r * 2, height: r * 2)
                 }
                 Circle().stroke(Color.white.opacity(0.12), lineWidth: 1).padding(0.8)
                 Circle().fill(Color.white.opacity(0.04)).frame(width: R * 0.1, height: R * 0.1).offset(y: -R * 0.68)
                 Group {
                     if let artwork {
-                        Image(nsImage: artwork).resizable().aspectRatio(contentMode: .fill)
+                        FullColorImage(image: artwork)
                     } else {
                         ZStack {
-                            Circle().fill(palette.accent)
+                            Circle().fill(palette.mono ? Color.white.opacity(0.35) : palette.accent)
                             Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.7).padding(labelR * 0.18)
                             Text("PLATTER").font(.system(size: labelR * 0.26, weight: .heavy, design: .rounded))
                                 .foregroundColor(.black.opacity(0.7)).offset(y: -labelR * 0.45)
@@ -268,26 +285,33 @@ struct DeckArt<Disc: View>: View {
     var body: some View {
         let c = Deck.center, R = Deck.radius
         ZStack(alignment: .topLeading) {
-            Circle().fill(LinearGradient(colors: [palette.rimLight, palette.rimDark], startPoint: .top, endPoint: .bottom))
+            Group {
+                if palette.mono {
+                    // A ring only: a filled platter would show through the translucent record.
+                    Circle().strokeBorder(Color.white.opacity(0.45), lineWidth: 3)
+                } else {
+                    Circle().fill(LinearGradient(colors: [palette.rimLight, palette.rimDark], startPoint: .top, endPoint: .bottom))
+                }
+            }
                 .frame(width: R * 2 + 12, height: R * 2 + 12)
-                .shadow(color: .black.opacity(0.45), radius: 6, y: 4)
+                .shadow(color: palette.shadow.opacity(0.45), radius: 6, y: 4)
                 .offset(x: c.x - R - 6, y: c.y - R - 6)
-            Circle().fill(Color(white: 0.1)).frame(width: R * 2 + 4, height: R * 2 + 4).offset(x: c.x - R - 2, y: c.y - R - 2)
+            Circle().fill(palette.mono ? Color.clear : Color(white: 0.1)).frame(width: R * 2 + 4, height: R * 2 + 4).offset(x: c.x - R - 2, y: c.y - R - 2)
             disc().frame(width: R * 2, height: R * 2).offset(x: c.x - R, y: c.y - R)
             SheenView().frame(width: R * 2, height: R * 2).offset(x: c.x - R, y: c.y - R)
             Group {
                 Circle().fill(LinearGradient(colors: [palette.rimLight.opacity(0.9), palette.rimDark], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 40, height: 40).shadow(color: .black.opacity(0.35), radius: 3, y: 2)
+                    .frame(width: 40, height: 40).shadow(color: palette.shadow.opacity(0.35), radius: 3, y: 2)
                     .offset(x: Deck.pivot.x - 20, y: Deck.pivot.y - 20)
                 let rest = Deck.stylus(Deck.restAngle)
                 Capsule().fill(palette.rimDark).frame(width: 6, height: 16).offset(x: rest.x - 3, y: rest.y - 30)
                 TonearmView(palette: palette)
-                    .shadow(color: .black.opacity(0.4), radius: playing ? 2 : 4, x: -2, y: playing ? 3 : 6)
+                    .shadow(color: palette.shadow.opacity(0.4), radius: playing ? 2 : 4, x: -2, y: playing ? 3 : 6)
                     .rotationEffect(.degrees(armAngle), anchor: UnitPoint(x: Deck.pivot.x / Deck.size.width, y: Deck.pivot.y / Deck.size.height))
                     .animation(armAnimation, value: armAngle)
                 HStack(spacing: 6) {
                     Circle().fill(playing ? palette.accent : palette.secondary.opacity(0.4)).frame(width: 6, height: 6)
-                        .shadow(color: playing ? palette.accent : .clear, radius: 4)
+                        .shadow(color: playing && !palette.mono ? palette.accent : .clear, radius: 4)
                     Text("33⅓").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundColor(palette.secondary)
                 }
                 .offset(x: 236, y: 228)
@@ -376,5 +400,17 @@ enum PlatterCommand: String, CaseIterable {
     var notificationName: CFNotificationName { CFNotificationName("com.yaksbbgtr.platter.\(rawValue)" as CFString) }
     func post() {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), notificationName, nil, nil, true)
+    }
+}
+
+/// Album art that keeps its colours even when macOS draws the widget in monochrome.
+struct FullColorImage: View {
+    let image: NSImage
+    var body: some View {
+        if #available(macOS 15.0, *) {
+            Image(nsImage: image).resizable().widgetAccentedRenderingMode(.fullColor).aspectRatio(contentMode: .fill)
+        } else {
+            Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+        }
     }
 }

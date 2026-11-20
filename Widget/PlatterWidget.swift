@@ -196,20 +196,23 @@ struct WidgetControls: View {
         let d = big ? size : size * 0.8
         return Image(systemName: name)
             .font(.system(size: d * (big ? 0.4 : 0.38), weight: .semibold))
-            .foregroundColor(big ? (palette.wood || palette.text == .white ? .black.opacity(0.8) : .white) : palette.text)
+            .foregroundColor(big ? palette.playIcon : palette.text)
             .frame(width: d, height: d)
-            .background(Circle().fill(big ? palette.accent : palette.button))
+            .background(Circle().fill(big ? palette.playFill : palette.button))
     }
 }
 
 struct PlatterWidgetView: View {
     let entry: DeckEntry
     var familyOverride: WidgetFamily?   // for rendering previews outside WidgetKit
+    var monoOverride = false
     @Environment(\.widgetFamily) private var environmentFamily
+    @Environment(\.widgetRenderingMode) private var renderingMode
     private var family: WidgetFamily { familyOverride ?? environmentFamily }
 
     var body: some View {
-        let palette = Palette.make(entry.skin, art: entry.state.artNSColor)
+        let mono = monoOverride || renderingMode != .fullColor
+        let palette = mono ? Palette.monochrome : Palette.make(entry.skin, art: entry.state.artNSColor)
         GeometryReader { g in
             switch family {
             case .systemSmall:
