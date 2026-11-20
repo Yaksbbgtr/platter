@@ -15,20 +15,10 @@ import AppKit
 import Combine
 import ServiceManagement
 import SwiftUI
+import WidgetKit
 
 // MARK: - Settings
 
-enum Skin: String, CaseIterable {
-    case walnut, midnight, arctic, album
-    var title: String {
-        switch self {
-        case .walnut: return "Walnut"
-        case .midnight: return "Midnight"
-        case .arctic: return "Arctic"
-        case .album: return "Album Colors"
-        }
-    }
-}
 
 enum Layout: String, CaseIterable {
     case full, record
@@ -182,7 +172,11 @@ final class NowPlaying: ObservableObject {
         return image
     }
 
+    /// Bumped whenever the artwork changes, so the widget knows to re-read artwork.jpg.
+    private(set) var artworkVersion = 0
+
     func setArtwork(_ image: NSImage?) {
+        if image !== artwork { artworkVersion += 1 }
         artwork = image
         artColor = image.flatMap(averageColor)
     }
@@ -287,96 +281,6 @@ final class NowPlaying: ObservableObject {
     }
 }
 
-func averageColor(_ image: NSImage) -> NSColor? {
-    guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-    var px = [UInt8](repeating: 0, count: 4)
-    let made: Bool = px.withUnsafeMutableBytes { buf in
-        guard let ctx = CGContext(data: buf.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-        ctx.interpolationQuality = .medium
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        return true
-    }
-    guard made else { return nil }
-    return NSColor(srgbRed: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
-}
-
-extension NSColor {
-    func hsb(s: (CGFloat) -> CGFloat = { $0 }, b: (CGFloat) -> CGFloat = { $0 }) -> NSColor {
-        let c = usingColorSpace(.sRGB) ?? self
-        var h: CGFloat = 0, sa: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
-        c.getHue(&h, saturation: &sa, brightness: &br, alpha: &a)
-        return NSColor(hue: h, saturation: min(1, max(0, s(sa))), brightness: min(1, max(0, b(br))), alpha: a)
-    }
-}
-
-// MARK: - Look
-
-struct Palette {
-    var top: Color, bottom: Color, text: Color, secondary: Color, accent: Color, button: Color, track: Color
-    var wood = false
-    var rimLight: Color = Color(white: 0.86), rimDark: Color = Color(white: 0.45)
-
-    static func make(_ skin: Skin, art: NSColor?) -> Palette {
-        let artAccent = art.map { Color($0.hsb(s: { max($0, 0.45) }, b: { min(max($0, 0.7), 0.95) })) }
-        func hex(_ v: UInt32) -> Color {
-            Color(.sRGB, red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
-        }
-        switch skin {
-        case .walnut:
-            let cream = hex(0xF4E6D0)
-            return Palette(top: hex(0x74492C), bottom: hex(0x3A2214), text: cream, secondary: cream.opacity(0.62),
-                           accent: artAccent ?? hex(0xF0A54A), button: cream.opacity(0.13), track: Color.black.opacity(0.32), wood: true)
-        case .midnight:
-            return Palette(top: hex(0x2A2A30), bottom: hex(0x101013), text: .white, secondary: .white.opacity(0.55),
-                           accent: artAccent ?? hex(0xFF5A4E), button: .white.opacity(0.09), track: .white.opacity(0.12),
-                           rimLight: Color(white: 0.55), rimDark: Color(white: 0.2))
-        case .arctic:
-            let ink = hex(0x24221F)
-            return Palette(top: hex(0xF7F5F1), bottom: hex(0xDAD5CD), text: ink, secondary: ink.opacity(0.55),
-                           accent: art.map { Color($0.hsb(s: { max($0, 0.5) }, b: { min(max($0, 0.55), 0.8) })) } ?? hex(0xE2683C),
-                           button: Color.black.opacity(0.07), track: Color.black.opacity(0.1))
-        case .album:
-            let base = art ?? NSColor(srgbRed: 0.33, green: 0.38, blue: 0.78, alpha: 1)
-            return Palette(top: Color(base.hsb(s: { min($0 * 1.1, 0.75) }, b: { min(max($0 * 0.75, 0.32), 0.6) })),
-                           bottom: Color(base.hsb(s: { min($0 * 1.1, 0.8) }, b: { min(max($0 * 0.38, 0.12), 0.28) })),
-                           text: .white, secondary: .white.opacity(0.62),
-                           accent: Color(base.hsb(s: { min($0, 0.35) }, b: { _ in 1 })), button: .white.opacity(0.13),
-                           track: Color.black.opacity(0.28), rimLight: Color(white: 0.7), rimDark: Color(white: 0.3))
-        }
-    }
-}
-
-// MARK: - Turntable geometry (deck coordinates, 300 × 250)
-
-enum Deck {
-    static let size = CGSize(width: 300, height: 250)
-    static let center = CGPoint(x: 128, y: 124)
-    static let radius: CGFloat = 104
-    static let pivot = CGPoint(x: 260, y: 44)
-    static let armLength: CGFloat = 172
-    static let restAngle: Double = -2
-    static let labelRadius: CGFloat = 38
-
-    /// Stylus position for an arm rotated clockwise by `deg` from pointing straight down.
-    static func stylus(_ deg: Double) -> CGPoint {
-        let t = deg * .pi / 180
-        return CGPoint(x: pivot.x - armLength * sin(t), y: pivot.y + armLength * cos(t))
-    }
-    /// The first arm angle (sweeping in from rest) whose stylus sits `r` from the spindle.
-    static func angle(forGroove r: CGFloat) -> Double {
-        var deg = 0.0
-        while deg < 90 {
-            let s = stylus(deg)
-            if hypot(s.x - center.x, s.y - center.y) <= r { return deg }
-            deg += 0.05
-        }
-        return deg
-    }
-    static let outerGroove = angle(forGroove: radius * 0.94)
-    static let innerGroove = angle(forGroove: radius * 0.46)
-}
 
 // MARK: - Record spin (33⅓ rpm with inertia)
 
@@ -470,47 +374,9 @@ struct RecordView: View {
                       at: CGPoint(x: c.x, y: c.y + labelR * 0.5))
         }
         disc.stroke(circle(c, labelR), with: .color(.black.opacity(0.45)), lineWidth: 1.2)
-
-        // Static anisotropic sheen: on real vinyl the reflection stays put while the disc turns.
-        var sheenPath = circle(c, outer)
-        sheenPath.addPath(circle(c, labelR * 1.06))
-        let clear = Color.white.opacity(0)
-        let sheen = Gradient(stops: [
-            .init(color: clear, location: 0), .init(color: .white.opacity(0.16), location: 0.09), .init(color: clear, location: 0.2),
-            .init(color: clear, location: 0.5), .init(color: .white.opacity(0.11), location: 0.59), .init(color: clear, location: 0.7),
-            .init(color: clear, location: 1)])
-        ctx.fill(sheenPath, with: .conicGradient(sheen, center: c, angle: .degrees(-40)), style: FillStyle(eoFill: true))
-
-        // Spindle.
-        ctx.fill(circle(c, 3.6), with: .linearGradient(Gradient(colors: [Color(white: 0.95), Color(white: 0.45)]),
-                                                       startPoint: CGPoint(x: c.x - 3, y: c.y - 3), endPoint: CGPoint(x: c.x + 3, y: c.y + 3)))
     }
 }
 
-struct TonearmView: View {
-    let palette: Palette
-
-    var body: some View {
-        let p = Deck.pivot, L = Deck.armLength
-        let metal = LinearGradient(colors: [palette.rimLight, .white, palette.rimDark], startPoint: .leading, endPoint: .trailing)
-        ZStack(alignment: .topLeading) {
-            // counterweight
-            RoundedRectangle(cornerRadius: 3).fill(LinearGradient(colors: [Color(white: 0.35), Color(white: 0.12), Color(white: 0.3)],
-                                                                  startPoint: .leading, endPoint: .trailing))
-                .frame(width: 17, height: 24).offset(x: p.x - 8.5, y: p.y - 40)
-            // arm tube
-            Capsule().fill(metal).frame(width: 4.5, height: L - 18).offset(x: p.x - 2.25, y: p.y - 14)
-            // headshell + cartridge
-            RoundedRectangle(cornerRadius: 2.5).fill(metal).frame(width: 12, height: 26).offset(x: p.x - 6, y: p.y + L - 30)
-            RoundedRectangle(cornerRadius: 1.5).fill(Color(white: 0.12)).frame(width: 9, height: 12).offset(x: p.x - 4.5, y: p.y + L - 14)
-            RoundedRectangle(cornerRadius: 1).fill(palette.rimLight).frame(width: 3, height: 9).offset(x: p.x + 6, y: p.y + L - 30)
-            // pivot cap
-            Circle().fill(RadialGradient(colors: [.white, palette.rimDark], center: .topLeading, startRadius: 1, endRadius: 14))
-                .frame(width: 14, height: 14).offset(x: p.x - 7, y: p.y - 7)
-        }
-        .frame(width: Deck.size.width, height: Deck.size.height, alignment: .topLeading)
-    }
-}
 
 struct TurntableDeck: View {
     @ObservedObject var np: NowPlaying
@@ -518,52 +384,23 @@ struct TurntableDeck: View {
     @ObservedObject var ui: Interaction
     let palette: Palette
 
-    private var armAngle: (Date) -> Double {
-        { date in
-            guard np.hasTrack, np.playing || ui.scrubOffset != nil else { return Deck.restAngle }
-            guard np.duration > 0 else { return Deck.outerGroove + 2 }
-            var t = np.live(at: date) + (ui.scrubOffset ?? 0)
-            if let b = ui.barScrub { t = b * np.duration }
-            let progress = min(1, max(0, t / np.duration))
-            return Deck.outerGroove + (Deck.innerGroove - Deck.outerGroove) * progress
-        }
+    private func arm(_ date: Date) -> Double {
+        var t = np.live(at: date) + (ui.scrubOffset ?? 0)
+        if let b = ui.barScrub { t = b * np.duration }
+        return armAngle(playing: np.playing || ui.scrubOffset != nil, hasTrack: np.hasTrack, position: t, duration: np.duration)
     }
 
     var body: some View {
         let c = Deck.center, R = Deck.radius
-        ZStack(alignment: .topLeading) {
-            // platter rim + mat
-            Circle().fill(LinearGradient(colors: [palette.rimLight, palette.rimDark], startPoint: .top, endPoint: .bottom))
-                .frame(width: R * 2 + 12, height: R * 2 + 12)
-                .shadow(color: .black.opacity(0.45), radius: 6, y: 4)
-                .offset(x: c.x - R - 6, y: c.y - R - 6)
-            Circle().fill(Color(white: 0.1)).frame(width: R * 2 + 4, height: R * 2 + 4).offset(x: c.x - R - 2, y: c.y - R - 2)
-            RecordView(np: np, spinner: spinner, palette: palette)
-                .frame(width: R * 2, height: R * 2)
-                .contentShape(Circle())
-                .gesture(recordGesture)
-                .offset(x: c.x - R, y: c.y - R)
-            // arm base plate and rest post
-            Circle().fill(LinearGradient(colors: [palette.rimLight.opacity(0.9), palette.rimDark], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 40, height: 40).shadow(color: .black.opacity(0.35), radius: 3, y: 2)
-                .offset(x: Deck.pivot.x - 20, y: Deck.pivot.y - 20).allowsHitTesting(false)
-            let rest = Deck.stylus(Deck.restAngle)
-            Capsule().fill(palette.rimDark).frame(width: 6, height: 16).offset(x: rest.x - 3, y: rest.y - 30).allowsHitTesting(false)
-            TimelineView(.periodic(from: .now, by: 1)) { tl in
-                TonearmView(palette: palette)
-                    .shadow(color: .black.opacity(0.4), radius: np.playing ? 2 : 4, x: -2, y: np.playing ? 3 : 6)
-                    .rotationEffect(.degrees(armAngle(tl.date)),
-                                    anchor: UnitPoint(x: Deck.pivot.x / Deck.size.width, y: Deck.pivot.y / Deck.size.height))
-                    .animation(.spring(response: 1.1, dampingFraction: 0.86), value: armAngle(tl.date))
+        TimelineView(.periodic(from: .now, by: 1)) { tl in
+            DeckArt(palette: palette, armAngle: arm(tl.date), playing: np.playing,
+                    armAnimation: .spring(response: 1.1, dampingFraction: 0.86)) {
+                RecordView(np: np, spinner: spinner, palette: palette)
+                    .contentShape(Circle())
+                    .gesture(recordGesture)
             }
-            .allowsHitTesting(false)
-            // power LED + speed
-            HStack(spacing: 6) {
-                Circle().fill(np.playing ? palette.accent : palette.secondary.opacity(0.4)).frame(width: 6, height: 6)
-                    .shadow(color: np.playing ? palette.accent : .clear, radius: 4)
-                Text("33⅓").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundColor(palette.secondary)
-            }
-            .offset(x: 236, y: 228).allowsHitTesting(false)
+        }
+        .overlay(alignment: .topLeading) {
             if let s = ui.scrubOffset {
                 let t = min(max(0, np.live() + s), np.duration > 0 ? np.duration : .infinity)
                 Text(formatTime(t)).font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
@@ -632,11 +469,6 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-func formatTime(_ t: Double) -> String {
-    guard t.isFinite else { return "–:––" }
-    let s = Int(t.rounded(.down))
-    return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
-}
 
 struct ProgressBar: View {
     @ObservedObject var np: NowPlaying
@@ -705,35 +537,7 @@ struct InfoPanel: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, 2)
-        .padding(.bottom, 18)
-    }
-}
-
-struct WoodGrain: View {
-    var body: some View {
-        Canvas { ctx, size in
-            var rng = SeededRandom(seed: 7)
-            for i in 0..<46 {
-                var p = Path()
-                let y0 = CGFloat(i) / 46 * size.height + CGFloat(rng.next()) * 6
-                let amp = 2 + CGFloat(rng.next()) * 5, freq = 0.008 + CGFloat(rng.next()) * 0.012, phase = CGFloat(rng.next()) * 6
-                p.move(to: CGPoint(x: 0, y: y0))
-                var x: CGFloat = 0
-                while x <= size.width { x += 6; p.addLine(to: CGPoint(x: x, y: y0 + sin(x * freq + phase) * amp)) }
-                let dark = rng.next() > 0.45
-                ctx.stroke(p, with: .color(dark ? .black.opacity(0.10 + rng.next() * 0.12) : .white.opacity(0.03 + rng.next() * 0.04)),
-                           lineWidth: 0.6 + CGFloat(rng.next()) * 1.6)
-            }
-        }
-    }
-}
-
-struct SeededRandom {
-    var state: UInt64
-    init(seed: UInt64) { state = seed &* 0x9E3779B97F4A7C15 }
-    mutating func next() -> Double {
-        state = state &* 6364136223846793005 &+ 1442695040888963407
-        return Double(state >> 11) / Double(1 << 53)
+        .padding(.bottom, 24)
     }
 }
 
@@ -747,7 +551,7 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: DragView, context: Context) {}
 }
 
-struct Widget: View {
+struct FloatingWidget: View {
     @ObservedObject var np: NowPlaying
     @ObservedObject var spinner: Spinner
     @ObservedObject var settings: Settings
@@ -755,7 +559,7 @@ struct Widget: View {
     var interactive = true
 
     static func cardSize(_ layout: Layout) -> CGSize {
-        CGSize(width: Deck.size.width, height: layout == .full ? Deck.size.height + 128 : Deck.size.height)
+        CGSize(width: Deck.size.width, height: layout == .full ? Deck.size.height + 150 : Deck.size.height)
     }
 
     var body: some View {
@@ -769,10 +573,7 @@ struct Widget: View {
         .frame(width: size.width, height: size.height, alignment: .top)
         .background(
             ZStack {
-                shape.fill(LinearGradient(colors: [palette.top, palette.bottom], startPoint: .top, endPoint: .bottom))
-                if palette.wood { WoodGrain().clipShape(shape) }
-                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.28), .white.opacity(0.02), .black.opacity(0.25)],
-                                                  startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                PlinthBackground(palette: palette, shape: shape)
                 if interactive { WindowDragArea().clipShape(shape) }
             }
             .shadow(color: .black.opacity(0.45), radius: 16, y: 10)
@@ -813,7 +614,7 @@ struct RootView: View {
     @ObservedObject var settings: Settings
     @ObservedObject var ui: Interaction
     var body: some View {
-        Widget(np: np, spinner: spinner, settings: settings, ui: ui)
+        FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui)
             .scaleEffect(settings.scale, anchor: .topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -873,15 +674,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.$scale.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.resize() } }.store(in: &bag)
         settings.$placement.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.applyPlacement() } }.store(in: &bag)
         settings.$visible.sink { [weak self] v in DispatchQueue.main.async { v ? self?.panel.orderFront(nil) : self?.panel.orderOut(nil) } }.store(in: &bag)
+        np.objectWillChange.merge(with: settings.$skin.map { _ in () }.eraseToAnyPublisher())
+            .debounce(for: .seconds(0.4), scheduler: RunLoop.main)
+            .sink { [weak self] in self?.publishState() }.store(in: &bag)
+        listenForWidgetCommands()
         np.start()
+        publishState(force: true)
     }
 
-    func applicationWillTerminate(_ note: Notification) { np.stop() }
+    func applicationWillTerminate(_ note: Notification) {
+        np.stop()
+        var st = lastState; st.playing = false; st.source = nil; st.save()   // the widget can't follow playback without us
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    // MARK: Desktop widget bridge
+
+    private var lastState = PlayerState()
+    private var lastArtworkVersion = -1
+
+    /// Writes what's playing for the WidgetKit widget; reloads it only when something it shows changed.
+    func publishState(force: Bool = false) {
+        let now = Date()
+        var st = PlayerState()
+        st.title = np.title; st.artist = np.artist; st.album = np.album; st.source = np.source
+        st.playing = np.playing; st.duration = np.duration
+        st.position = np.live(at: now); st.positionDate = now
+        st.skin = settings.skin.rawValue
+        if let c = np.artColor?.usingColorSpace(.sRGB) { st.artColor = [c.redComponent, c.greenComponent, c.blueComponent].map(Double.init) }
+        if np.artworkVersion != lastArtworkVersion {
+            lastArtworkVersion = np.artworkVersion
+            try? FileManager.default.createDirectory(at: PlayerState.directory, withIntermediateDirectories: true)
+            if let art = np.artwork, let jpeg = Self.jpeg(art, side: 320) { try? jpeg.write(to: PlayerState.artworkURL, options: .atomic) }
+            else { try? FileManager.default.removeItem(at: PlayerState.artworkURL) }
+        }
+        st.artworkID = np.artwork == nil ? nil : String(np.artworkVersion)
+        var a = st, b = lastState
+        a.position = 0; a.positionDate = .distantPast; b.position = 0; b.positionDate = .distantPast
+        let drift = abs(st.live(at: now) - lastState.live(at: now))
+        guard force || a != b || drift > 2.5 else { return }
+        lastState = st
+        st.save()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    static func jpeg(_ image: NSImage, side: Int) -> Data? {
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.82])
+    }
+
+    /// The widget's buttons post Darwin notifications (all a sandboxed widget can do); act on them here.
+    func listenForWidgetCommands() {
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        for cmd in PlatterCommand.allCases {
+            CFNotificationCenterAddObserver(center, Unmanaged.passUnretained(self).toOpaque(), { _, observer, name, _, _ in
+                guard let observer, let name else { return }
+                let me = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                let raw = (name.rawValue as String).components(separatedBy: ".").last ?? ""
+                DispatchQueue.main.async {
+                    switch PlatterCommand(rawValue: raw) {
+                    case .toggle: me.np.playPause()
+                    case .next: me.np.next()
+                    case .previous: me.np.previous()
+                    case nil: break
+                    }
+                }
+            }, cmd.notificationName.rawValue, nil, .deliverImmediately)
+        }
+    }
+
+    @objc func showWidgetHelp() {
+        let alert = NSAlert()
+        alert.messageText = "Add Platter to your desktop"
+        alert.informativeText = """
+        Right-click the desktop → Edit Widgets…, search for Platter, and drag the Small, Medium or Large turntable onto your desktop.
+
+        Right-click a widget → Edit "Platter" to give it its own style. Keep Platter running (it lives in the menu bar) — it tells the widget what's playing and carries out its buttons.
+
+        macOS dims desktop widgets while another app is in front. For full colour all the time: System Settings → Desktop & Dock → Widget style → Full-color.
+        """
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
 
     var rootView: RootView { RootView(np: np, spinner: spinner, settings: settings, ui: ui) }
 
     func resize(initial: Bool = false) {
-        let card = Widget.cardSize(settings.layout)
+        let card = FloatingWidget.cardSize(settings.layout)
         let s = settings.scale
         let size = NSSize(width: (card.width + 56) * s, height: (card.height + 56) * s)
         if initial, let screen = NSScreen.main {
@@ -917,7 +802,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(ClosureItem("Next Track") { [np] in np.next() })
             m.addItem(.separator())
         }
-        m.addItem(ClosureItem(settings.visible ? "Hide Widget" : "Show Widget") { [settings] in settings.visible.toggle() })
+        m.addItem(ClosureItem("Floating Turntable", checked: settings.visible) { [settings] in settings.visible.toggle() })
+        m.addItem(ClosureItem("Add Desktop Widget…") { [weak self] in self?.showWidgetHelp() })
         m.addItem(.separator())
         m.addItem(submenu("Style", Skin.allCases.map { s in ClosureItem(s.title, checked: settings.skin == s) { [settings] in settings.skin = s } }))
         m.addItem(submenu("Size", Settings.sizes.map { s in ClosureItem(s.0, checked: abs(settings.scale - s.1) < 0.01) { [settings] in settings.scale = s.1 } }))
@@ -960,7 +846,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         np.setArtwork(art)
         spinner.angle = 30
     }
-    let view = Widget(np: np, spinner: spinner, settings: settings, ui: ui, interactive: false)
+    let view = FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui, interactive: false)
     let renderer = ImageRenderer(content: view)
     renderer.scale = 2
     guard let cg = renderer.cgImage else { print("render failed"); exit(1) }

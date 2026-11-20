@@ -1,0 +1,71 @@
+name: Platter
+options:
+  bundleIdPrefix: com.yaksbbgtr
+  deploymentTarget:
+    macOS: "14.0"
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    PROVISIONING_PROFILE_SPECIFIER: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    ENABLE_HARDENED_RUNTIME: "NO"
+targets:
+  Platter:
+    type: application
+    platform: macOS
+    sources:
+      - App/main.swift
+      - Shared/Look.swift
+      - path: App/AppIcon.icns
+        buildPhase: resources
+      - path: Adapter/now-playing.pl
+        buildPhase: resources
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: Platter
+        CFBundleDisplayName: Platter
+        CFBundleIconFile: AppIcon
+        CFBundleShortVersionString: "2.0"
+        CFBundleVersion: "2"
+        LSApplicationCategoryType: public.app-category.music
+        LSUIElement: true
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        NSAppleEventsUsageDescription: Platter shows and controls what's playing in Music and Spotify.
+    settings:
+      base:
+        PRODUCT_NAME: Platter
+        PRODUCT_BUNDLE_IDENTIFIER: com.yaksbbgtr.platter
+    dependencies:
+      - target: PlatterWidget
+  PlatterWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - Widget/PlatterWidget.swift
+      - Shared/Look.swift
+    entitlements:
+      path: Widget/PlatterWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        # Lets the sandboxed widget read the now-playing file the app writes.
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /Library/Application Support/Platter/
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleName: Platter Widget
+        CFBundleDisplayName: Platter
+        CFBundleShortVersionString: "2.0"
+        CFBundleVersion: "2"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_NAME: PlatterWidget
+        PRODUCT_BUNDLE_IDENTIFIER: com.yaksbbgtr.platter.widget
