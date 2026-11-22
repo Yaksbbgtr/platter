@@ -2,9 +2,35 @@
 // Pieces shared by the Platter app and its WidgetKit widget: skins, colours, turntable geometry,
 // the tonearm and the plinth's wood grain, plus the now-playing state file the app writes for the widget.
 
-import AppKit
 import SwiftUI
 import WidgetKit
+#if os(macOS)
+import AppKit
+typealias PlatformImage = NSImage
+typealias PlatformColor = NSColor
+#else
+import UIKit
+typealias PlatformImage = UIImage
+typealias PlatformColor = UIColor
+#endif
+
+extension Image {
+    init(platform image: PlatformImage) {
+        #if os(macOS)
+        self.init(nsImage: image)
+        #else
+        self.init(uiImage: image)
+        #endif
+    }
+}
+
+func rgbColor(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> PlatformColor {
+    #if os(macOS)
+    return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+    #else
+    return UIColor(red: r, green: g, blue: b, alpha: 1)
+    #endif
+}
 
 enum Skin: String, CaseIterable {
     case walnut, midnight, arctic, album
@@ -18,8 +44,13 @@ enum Skin: String, CaseIterable {
     }
 }
 
-func averageColor(_ image: NSImage) -> NSColor? {
-    guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+func averageColor(_ image: PlatformImage) -> PlatformColor? {
+    #if os(macOS)
+    let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    #else
+    let source = image.cgImage
+    #endif
+    guard let cg = source else { return nil }
     var px = [UInt8](repeating: 0, count: 4)
     let made: Bool = px.withUnsafeMutableBytes { buf in
         guard let ctx = CGContext(data: buf.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
@@ -30,15 +61,19 @@ func averageColor(_ image: NSImage) -> NSColor? {
         return true
     }
     guard made else { return nil }
-    return NSColor(srgbRed: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
+    return rgbColor(CGFloat(px[0]) / 255, CGFloat(px[1]) / 255, CGFloat(px[2]) / 255)
 }
 
-extension NSColor {
-    func hsb(s: (CGFloat) -> CGFloat = { $0 }, b: (CGFloat) -> CGFloat = { $0 }) -> NSColor {
+extension PlatformColor {
+    func hsb(s: (CGFloat) -> CGFloat = { $0 }, b: (CGFloat) -> CGFloat = { $0 }) -> PlatformColor {
+        #if os(macOS)
         let c = usingColorSpace(.sRGB) ?? self
+        #else
+        let c = self
+        #endif
         var h: CGFloat = 0, sa: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
         c.getHue(&h, saturation: &sa, brightness: &br, alpha: &a)
-        return NSColor(hue: h, saturation: min(1, max(0, s(sa))), brightness: min(1, max(0, b(br))), alpha: a)
+        return PlatformColor(hue: h, saturation: min(1, max(0, s(sa))), brightness: min(1, max(0, b(br))), alpha: a)
     }
 }
 
@@ -61,7 +96,7 @@ struct Palette {
     var playFill: Color { mono ? .white.opacity(0.28) : accent }
     var playIcon: Color { mono ? .white : (wood || text == .white ? .black.opacity(0.8) : .white) }
 
-    static func make(_ skin: Skin, art: NSColor?) -> Palette {
+    static func make(_ skin: Skin, art: PlatformColor?) -> Palette {
         let artAccent = art.map { Color($0.hsb(s: { max($0, 0.45) }, b: { min(max($0, 0.7), 0.95) })) }
         func hex(_ v: UInt32) -> Color {
             Color(.sRGB, red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
@@ -81,7 +116,7 @@ struct Palette {
                            accent: art.map { Color($0.hsb(s: { max($0, 0.5) }, b: { min(max($0, 0.55), 0.8) })) } ?? hex(0xE2683C),
                            button: Color.black.opacity(0.07), track: Color.black.opacity(0.1))
         case .album:
-            let base = art ?? NSColor(srgbRed: 0.33, green: 0.38, blue: 0.78, alpha: 1)
+            let base = art ?? rgbColor(0.33, 0.38, 0.78)
             return Palette(top: Color(base.hsb(s: { min($0 * 1.1, 0.75) }, b: { min(max($0 * 0.75, 0.32), 0.6) })),
                            bottom: Color(base.hsb(s: { min($0 * 1.1, 0.8) }, b: { min(max($0 * 0.38, 0.12), 0.28) })),
                            text: .white, secondary: .white.opacity(0.62),
@@ -193,7 +228,7 @@ func formatTime(_ t: Double) -> String {
 // MARK: - Record built from plain shapes (the widget can't run a Canvas every frame)
 
 struct DiscView: View {
-    let artwork: NSImage?
+    let artwork: PlatformImage?
     let palette: Palette
 
     var body: some View {
@@ -345,6 +380,7 @@ struct PlinthBackground<S: InsettableShape>: View {
 }
 
 // MARK: - State shared with the widget
+#if os(macOS)
 //
 // The sandboxed widget can't read MediaRemote, so the app writes what's playing to
 // ~/Library/Application Support/Platter/ (state.json + artwork.jpg). The widget may read only
@@ -403,14 +439,16 @@ enum PlatterCommand: String, CaseIterable {
     }
 }
 
+#endif
+
 /// Album art that keeps its colours even when macOS draws the widget in monochrome.
 struct FullColorImage: View {
-    let image: NSImage
+    let image: PlatformImage
     var body: some View {
-        if #available(macOS 15.0, *) {
-            Image(nsImage: image).resizable().widgetAccentedRenderingMode(.fullColor).aspectRatio(contentMode: .fill)
+        if #available(macOS 15.0, iOS 18.0, *) {
+            Image(platform: image).resizable().widgetAccentedRenderingMode(.fullColor).aspectRatio(contentMode: .fill)
         } else {
-            Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+            Image(platform: image).resizable().aspectRatio(contentMode: .fill)
         }
     }
 }

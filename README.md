@@ -23,6 +23,20 @@ Click the record or the play button to play or pause, and use ◀◀ / ▶▶ to
 
 You can turn off the floating turntable from the menu bar (◉ → Floating Turntable) if you only want the widget.
 
+## Full screen on the Mac
+
+<p align="center"><img src="docs/fullscreen.png" width="620" alt="Full screen, Walnut"></p>
+
+Open it from the menu bar (◉ → **Full Screen**), by clicking a blank part of the desktop widget, or with the ⤢ button on the floating turntable. It opens in its own full-screen Space. The buttons fade after a few seconds; move the mouse to bring them back. The display stays awake while music plays.
+
+Space plays or pauses, ← / → skip, S changes the style, Esc exits.
+
+## iPhone
+
+`PlatterPhone` is a full-screen turntable for the iPhone, upright or sideways. It follows and controls the **Music app** only, because iOS doesn't let apps see what other apps are playing. Tap the record to play or pause, spin it to scrub, and tap anywhere else to show or hide the buttons.
+
+To install it: run `xcodegen generate`, open `Platter.xcodeproj`, choose your team for the PlatterPhone target (Signing & Capabilities), plug in the iPhone with Developer Mode on, and run the PlatterPhone scheme. Regenerating the project clears the team.
+
 ## Using the floating turntable
 
 | Action | Result |
@@ -51,7 +65,9 @@ open ~/Applications/Platter.app
 
 - `App/main.swift`: the menu bar app and the floating turntable (SwiftUI + AppKit).
 - `Widget/PlatterWidget.swift`: the WidgetKit widget. It is sandboxed, so the app writes what's playing to `~/Library/Application Support/Platter/` and the widget reads it. The widget's buttons send Darwin notifications back to the app.
-- `Shared/Look.swift`: the skins, turntable drawing and state file, shared by the app and the widget.
+- `Shared/Player.swift`: the live turntable and the full-screen player, shared by the Mac and iPhone apps.
+- `Phone/PlatterPhone.swift`: the iPhone app.
+- `Shared/Look.swift`: the skins, turntable drawing and state file, shared by the apps and the widget.
 - `Adapter/`: reads the system Now Playing session through the private MediaRemote framework. Since macOS 15.4, MediaRemote only answers Apple-signed processes, so the adapter library is loaded into `/usr/bin/perl` (a platform binary) and streams JSON lines back to the app. If that fails, Platter falls back to Apple Events for Music and Spotify.
 
 ## License

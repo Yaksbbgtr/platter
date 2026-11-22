@@ -293,6 +293,7 @@ struct PlatterWidgetView: View {
             }
         }
         .unredacted()
+        .widgetURL(URL(string: "platter://fullscreen"))   // clicking anywhere but the buttons
         .containerBackground(for: .widget) {
             PlinthBackground(palette: palette, shape: Rectangle())
         }

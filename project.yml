@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.yaksbbgtr
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
   generateEmptyDirectories: true
 settings:
   base:
@@ -20,6 +21,7 @@ targets:
     sources:
       - App/main.swift
       - Shared/Look.swift
+      - Shared/Player.swift
       - path: App/AppIcon.icns
         buildPhase: resources
       - path: Adapter/now-playing.pl
@@ -30,12 +32,15 @@ targets:
         CFBundleName: Platter
         CFBundleDisplayName: Platter
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "3.0"
+        CFBundleVersion: "3"
         LSApplicationCategoryType: public.app-category.music
         LSUIElement: true
         NSHighResolutionCapable: true
         NSPrincipalClass: NSApplication
+        CFBundleURLTypes:
+          - CFBundleURLName: com.yaksbbgtr.platter
+            CFBundleURLSchemes: [platter]
         NSAppleEventsUsageDescription: Platter shows and controls what's playing in Music and Spotify.
     settings:
       base:
@@ -61,11 +66,42 @@ targets:
       properties:
         CFBundleName: Platter Widget
         CFBundleDisplayName: Platter
-        CFBundleShortVersionString: "2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "3.0"
+        CFBundleVersion: "3"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_NAME: PlatterWidget
         PRODUCT_BUNDLE_IDENTIFIER: com.yaksbbgtr.platter.widget
+  PlatterPhone:
+    type: application
+    platform: iOS
+    sources:
+      - Phone/PlatterPhone.swift
+      - Phone/Assets.xcassets
+      - Shared/Look.swift
+      - Shared/Player.swift
+    info:
+      path: Phone/Info.plist
+      properties:
+        CFBundleName: Platter
+        CFBundleDisplayName: Platter
+        CFBundleShortVersionString: "3.0"
+        CFBundleVersion: "3"
+        NSAppleMusicUsageDescription: Platter shows the song playing in Music on its turntable and lets you control it.
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_NAME: Platter
+        PRODUCT_BUNDLE_IDENTIFIER: com.yaksbbgtr.platter.phone
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development

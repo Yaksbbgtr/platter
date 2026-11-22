@@ -72,6 +72,7 @@ final class NowPlaying: ObservableObject {
     /// Last known position and the moment it was sampled; `live(at:)` extrapolates.
     @Published var position: Double = 0
     var positionDate = Date()
+    let idleHint = "Play something in Music, Spotify or a browser"
     var hasTrack: Bool { source != nil && (!title.isEmpty || duration > 0) }
 
     private let queue = DispatchQueue(label: "platter.nowplaying")
@@ -94,7 +95,7 @@ final class NowPlaying: ObservableObject {
     // MARK: Adapter
 
     func start() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.poll() }
+        if pollTimer == nil { pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.poll() } }
         guard let script = Bundle.main.url(forResource: "now-playing", withExtension: "pl"),
               let library = Bundle.main.privateFrameworksURL?.appendingPathComponent("libPlatterNowPlaying.dylib"),
               FileManager.default.fileExists(atPath: library.path) else { useAppleScript = true; return }
@@ -282,234 +283,13 @@ final class NowPlaying: ObservableObject {
 }
 
 
-// MARK: - Record spin (33⅓ rpm with inertia)
-
-final class Spinner: ObservableObject {
-    @Published var running = false
-    @Published var dragging = false
-    var angle: Double = 0
-    private var speed: Double = 0
-    private var target: Double = 0
-    private var last: Date?
-
-    func setPlaying(_ on: Bool) {
-        target = on ? 200 : 0      // 33⅓ rpm = 200°/s
-        if on && !running { last = nil; running = true }
-    }
-
-    func angle(at date: Date) -> Double {
-        defer { last = date }
-        guard !dragging else { return angle }
-        let dt = last.map { min(0.1, max(0, date.timeIntervalSince($0))) } ?? 0
-        speed += (target - speed) * min(1, dt * (target > speed ? 2.6 : 1.4))
-        if target == 0 && speed < 2 {
-            speed = 0
-            if running { DispatchQueue.main.async { if self.target == 0 { self.running = false } } }
-        }
-        angle = (angle + speed * dt).truncatingRemainder(dividingBy: 360)
-        return angle
-    }
-}
-
-/// Transient interaction state (kept in an object rather than @State: see README, toolchain note).
-final class Interaction: ObservableObject {
-    @Published var hover = false
-    @Published var scrubOffset: Double?        // seconds added while spinning the record by hand
-    @Published var barScrub: Double?           // 0…1 while dragging the progress bar
-    var lastFinger: Double?
-    var turned: Double = 0
-    var startAngle: Double = 0
-    var moved = false
-}
-
-// MARK: - Views
-
-struct RecordView: View {
-    @ObservedObject var np: NowPlaying
-    @ObservedObject var spinner: Spinner
-    let palette: Palette
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: nil, paused: !spinner.running && !spinner.dragging)) { tl in
-            let angle = spinner.angle(at: tl.date)
-            Canvas { ctx, size in draw(&ctx, size: size, angle: angle) }
-        }
-    }
-
-    private func circle(_ c: CGPoint, _ r: CGFloat) -> Path { Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)) }
-
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, angle: Double) {
-        let c = CGPoint(x: size.width / 2, y: size.height / 2), R = min(size.width, size.height) / 2
-        let labelR = R * Deck.labelRadius / Deck.radius
-        ctx.fill(circle(c, R), with: .radialGradient(Gradient(colors: [Color(white: 0.09), Color(white: 0.04)]),
-                                                     center: c, startRadius: labelR, endRadius: R))
-        var disc = ctx
-        disc.translateBy(x: c.x, y: c.y); disc.rotate(by: .degrees(angle)); disc.translateBy(x: -c.x, y: -c.y)
-
-        // Grooves, with a few darker gaps between tracks.
-        let inner = labelR * 1.12, outer = R * 0.975, count = 64
-        for i in 0..<count {
-            let r = inner + (outer - inner) * CGFloat(i) / CGFloat(count - 1)
-            disc.stroke(circle(c, r), with: .color(.white.opacity(i % 4 == 0 ? 0.055 : 0.03)), lineWidth: 0.6)
-        }
-        for f in [0.18, 0.39, 0.57, 0.76] as [CGFloat] {
-            disc.stroke(circle(c, inner + (outer - inner) * f), with: .color(.black.opacity(0.75)), lineWidth: 1.8)
-        }
-        disc.stroke(circle(c, R - 0.8), with: .color(.white.opacity(0.12)), lineWidth: 1)
-        // A faint off-centre glint that turns with the disc so motion reads even on a plain label.
-        disc.fill(circle(CGPoint(x: c.x, y: c.y - R * 0.68), R * 0.05), with: .color(.white.opacity(0.035)))
-
-        // Label: the album art, or a printed paper label.
-        let labelRect = CGRect(x: c.x - labelR, y: c.y - labelR, width: labelR * 2, height: labelR * 2)
-        if let art = np.artwork {
-            var l = disc
-            l.clip(to: circle(c, labelR))
-            l.draw(Image(nsImage: art).resizable(), in: labelRect)
-        } else {
-            disc.fill(circle(c, labelR), with: .color(palette.accent))
-            disc.stroke(circle(c, labelR * 0.82), with: .color(.black.opacity(0.18)), lineWidth: 0.7)
-            disc.draw(Text("PLATTER").font(.system(size: labelR * 0.26, weight: .heavy, design: .rounded)).foregroundColor(.black.opacity(0.7)),
-                      at: CGPoint(x: c.x, y: c.y - labelR * 0.45))
-            disc.draw(Text("33⅓ RPM").font(.system(size: labelR * 0.16, weight: .semibold, design: .rounded)).foregroundColor(.black.opacity(0.55)),
-                      at: CGPoint(x: c.x, y: c.y + labelR * 0.5))
-        }
-        disc.stroke(circle(c, labelR), with: .color(.black.opacity(0.45)), lineWidth: 1.2)
-    }
-}
-
-
-struct TurntableDeck: View {
-    @ObservedObject var np: NowPlaying
-    @ObservedObject var spinner: Spinner
-    @ObservedObject var ui: Interaction
-    let palette: Palette
-
-    private func arm(_ date: Date) -> Double {
-        var t = np.live(at: date) + (ui.scrubOffset ?? 0)
-        if let b = ui.barScrub { t = b * np.duration }
-        return armAngle(playing: np.playing || ui.scrubOffset != nil, hasTrack: np.hasTrack, position: t, duration: np.duration)
-    }
-
-    var body: some View {
-        let c = Deck.center, R = Deck.radius
-        TimelineView(.periodic(from: .now, by: 1)) { tl in
-            DeckArt(palette: palette, armAngle: arm(tl.date), playing: np.playing,
-                    armAnimation: .spring(response: 1.1, dampingFraction: 0.86)) {
-                RecordView(np: np, spinner: spinner, palette: palette)
-                    .contentShape(Circle())
-                    .gesture(recordGesture)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if let s = ui.scrubOffset {
-                let t = min(max(0, np.live() + s), np.duration > 0 ? np.duration : .infinity)
-                Text(formatTime(t)).font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(.white).padding(.horizontal, 9).padding(.vertical, 4)
-                    .background(Capsule().fill(.black.opacity(0.65)))
-                    .frame(width: 80).offset(x: c.x - 40, y: c.y + R * 0.52).allowsHitTesting(false)
-            }
-        }
-        .frame(width: Deck.size.width, height: Deck.size.height, alignment: .topLeading)
-    }
-
-    private var recordGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { v in
-                let R = Deck.radius
-                let finger = atan2(v.location.y - R, v.location.x - R) * 180 / .pi
-                if ui.lastFinger == nil { ui.lastFinger = finger; ui.turned = 0; ui.moved = false; ui.startAngle = spinner.angle }
-                var delta = finger - (ui.lastFinger ?? finger)
-                if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
-                ui.lastFinger = finger
-                ui.turned += delta
-                if !ui.moved && hypot(v.translation.width, v.translation.height) > 4 && np.hasTrack {
-                    ui.moved = true; spinner.dragging = true
-                }
-                if ui.moved {
-                    spinner.angle = ui.startAngle + ui.turned
-                    ui.scrubOffset = ui.turned / 360 * 15
-                }
-            }
-            .onEnded { _ in
-                if ui.moved, let s = ui.scrubOffset {
-                    let t = np.live() + s
-                    np.seek(min(max(0, t), np.duration > 0 ? np.duration - 0.5 : t))
-                } else if !ui.moved {
-                    np.playPause()
-                }
-                spinner.dragging = false
-                ui.scrubOffset = nil; ui.lastFinger = nil; ui.moved = false
-            }
-    }
-}
-
-struct ControlButton: View {
-    let symbol: String
-    let size: CGFloat
-    let big: Bool
-    let palette: Palette
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: size, weight: .semibold))
-                .foregroundColor(big ? (palette.wood || palette.text == .white ? .black.opacity(0.8) : .white) : palette.text)
-                .frame(width: big ? 42 : 34, height: big ? 42 : 34)
-                .background(Circle().fill(big ? palette.accent : palette.button))
-                .contentShape(Circle())
-        }
-        .buttonStyle(PressStyle())
-    }
-}
-
-struct PressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.scaleEffect(configuration.isPressed ? 0.9 : 1).animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-
-struct ProgressBar: View {
-    @ObservedObject var np: NowPlaying
-    @ObservedObject var ui: Interaction
-    let palette: Palette
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { tl in
-            let now = np.live(at: tl.date) + (ui.scrubOffset ?? 0)
-            let fraction = ui.barScrub ?? (np.duration > 0 ? min(1, max(0, now / np.duration)) : 0)
-            VStack(spacing: 5) {
-                GeometryReader { g in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(palette.track)
-                        Capsule().fill(palette.accent).frame(width: max(5, g.size.width * fraction))
-                    }
-                    .frame(height: ui.barScrub == nil ? 5 : 7)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { v in if np.duration > 0 { ui.barScrub = min(1, max(0, v.location.x / g.size.width)) } }
-                        .onEnded { _ in if let b = ui.barScrub { np.seek(b * np.duration) }; ui.barScrub = nil })
-                }
-                .frame(height: 12)
-                HStack {
-                    Text(formatTime(np.duration > 0 ? fraction * np.duration : now))
-                    Spacer()
-                    Text(np.duration > 0 ? "-" + formatTime(np.duration * (1 - fraction)) : "LIVE")
-                }
-                .font(.system(size: 10, weight: .medium, design: .rounded).monospacedDigit())
-                .foregroundColor(palette.secondary)
-                .allowsHitTesting(false)
-            }
-        }
-    }
-}
+// MARK: - Floating turntable
 
 struct InfoPanel: View {
     @ObservedObject var np: NowPlaying
     @ObservedObject var ui: Interaction
     let palette: Palette
+    var openFullScreen: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -517,12 +297,17 @@ struct InfoPanel: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(np.hasTrack ? (np.title.isEmpty ? (np.source ?? "") : np.title) : "Nothing playing")
                         .font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundColor(palette.text)
-                    Text(np.hasTrack ? [np.artist, np.album].filter { !$0.isEmpty }.joined(separator: " — ") : "Play something in Music, Spotify or a browser")
+                    Text(np.hasTrack ? [np.artist, np.album].filter { !$0.isEmpty }.joined(separator: " — ") : np.idleHint)
                         .font(.system(size: 11.5, weight: .medium, design: .rounded)).foregroundColor(palette.secondary)
                 }
                 .lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .allowsHitTesting(false)
+                if let openFullScreen {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .bold)).foregroundColor(palette.secondary)
+                        .frame(width: 22, height: 22).contentShape(Rectangle()).onTapGesture(perform: openFullScreen)
+                        .accessibilityLabel("Full screen")
+                }
                 if let icon = np.sourceIcon {
                     Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                         .contentShape(Rectangle()).onTapGesture(perform: np.openSource)
@@ -557,6 +342,7 @@ struct FloatingWidget: View {
     @ObservedObject var settings: Settings
     @ObservedObject var ui: Interaction
     var interactive = true
+    var openFullScreen: (() -> Void)?
 
     static func cardSize(_ layout: Layout) -> CGSize {
         CGSize(width: Deck.size.width, height: layout == .full ? Deck.size.height + 150 : Deck.size.height)
@@ -568,7 +354,7 @@ struct FloatingWidget: View {
         let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
         VStack(spacing: 0) {
             TurntableDeck(np: np, spinner: spinner, ui: ui, palette: palette)
-            if settings.layout == .full { InfoPanel(np: np, ui: ui, palette: palette) }
+            if settings.layout == .full { InfoPanel(np: np, ui: ui, palette: palette, openFullScreen: openFullScreen) }
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .background(
@@ -613,8 +399,9 @@ struct RootView: View {
     @ObservedObject var spinner: Spinner
     @ObservedObject var settings: Settings
     @ObservedObject var ui: Interaction
+    let openFullScreen: () -> Void
     var body: some View {
-        FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui)
+        FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui, openFullScreen: openFullScreen)
             .scaleEffect(settings.scale, anchor: .topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -763,7 +550,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.runModal()
     }
 
-    var rootView: RootView { RootView(np: np, spinner: spinner, settings: settings, ui: ui) }
+    var rootView: RootView { RootView(np: np, spinner: spinner, settings: settings, ui: ui, openFullScreen: { [weak self] in self?.fullScreen.open() }) }
+    lazy var fullScreen = FullScreenController(np: np, spinner: spinner, settings: settings)
+
+    /// Clicking the desktop widget's background opens platter://fullscreen.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if urls.contains(where: { $0.scheme == "platter" && $0.host == "fullscreen" }) { fullScreen.open() }
+    }
 
     func resize(initial: Bool = false) {
         let card = FloatingWidget.cardSize(settings.layout)
@@ -802,6 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(ClosureItem("Next Track") { [np] in np.next() })
             m.addItem(.separator())
         }
+        m.addItem(ClosureItem("Full Screen", key: "f") { [weak self] in self?.fullScreen.open() })
         m.addItem(ClosureItem("Floating Turntable", checked: settings.visible) { [settings] in settings.visible.toggle() })
         m.addItem(ClosureItem("Add Desktop Widget…") { [weak self] in self?.showWidgetHelp() })
         m.addItem(.separator())
@@ -825,7 +619,144 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
+// MARK: - Full screen window
+
+/// Controls and pointer fade after a few seconds without the mouse moving.
+final class Chrome: ObservableObject {
+    @Published var visible = true
+    private var timer: Timer?
+    func poke() {
+        if !visible { visible = true }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
+            self?.visible = false
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
+    }
+    func stop() { timer?.invalidate(); timer = nil }
+}
+
+struct MacFullScreenView: View {
+    let np: NowPlaying
+    let spinner: Spinner
+    @ObservedObject var settings: Settings
+    @ObservedObject var chrome: Chrome
+    let ui: Interaction
+    let close: () -> Void
+    var body: some View {
+        FullScreenPlayer(np: np, spinner: spinner, ui: ui, skin: $settings.skin, showControls: chrome.visible, onClose: close)
+    }
+}
+
+/// Opens the turntable in its own macOS full-screen Space. Space = play/pause, ← → = previous/next,
+/// S = next style, Esc = exit.
+final class FullScreenController: NSObject, NSWindowDelegate {
+    private let np: NowPlaying, spinner: Spinner, settings: Settings
+    private let ui = Interaction(), chrome = Chrome()
+    private var window: NSWindow?
+    private var monitor: Any?
+    private var awake: NSObjectProtocol?
+    private var bag = Set<AnyCancellable>()
+
+    init(np: NowPlaying, spinner: Spinner, settings: Settings) { self.np = np; self.spinner = spinner; self.settings = settings }
+
+    func open() {
+        NSApp.setActivationPolicy(.regular)     // full-screen Spaces belong to regular apps; undone on close
+        NSApp.mainMenu = menu()
+        NSApp.activate(ignoringOtherApps: true)
+        if window != nil { focus(); return }
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let w = NSWindow(contentRect: screen.visibleFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                         backing: .buffered, defer: false)
+        w.title = "Platter"
+        w.titleVisibility = .hidden
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = .black
+        w.isReleasedWhenClosed = false
+        w.collectionBehavior = [.fullScreenPrimary]
+        w.acceptsMouseMovedEvents = true
+        w.delegate = self
+        w.contentView = NSHostingView(rootView: MacFullScreenView(np: np, spinner: spinner, settings: settings, chrome: chrome, ui: ui,
+                                                                 close: { [weak self] in self?.close() }))
+        window = w
+        w.makeKeyAndOrderFront(nil)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved, .leftMouseDown, .leftMouseDragged]) { [weak self] event in
+            guard let self, event.window === self.window || event.type == .mouseMoved else { return event }
+            self.chrome.poke()
+            return event.type == .keyDown && self.handle(event) ? nil : event
+        }
+        chrome.poke()
+        // Keep the display awake while music plays here.
+        np.$playing.sink { [weak self] playing in
+            guard let self else { return }
+            if playing, self.awake == nil {
+                self.awake = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled, .userInitiated], reason: "Platter is full screen")
+            } else if !playing { self.allowSleep() }
+        }.store(in: &bag)
+        // Switching from a menu-bar app takes a moment; activating in the same breath leaves the
+        // keyboard with the previous app.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.focus()
+            w.toggleFullScreen(nil)
+        }
+    }
+
+    func close() {
+        guard let window else { return }
+        if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) } else { window.close() }
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
+        switch event.keyCode {
+        case 53: close()
+        case 49: if !event.isARepeat { np.playPause() }
+        case 123: np.previous()
+        case 124: np.next()
+        case 1:
+            let all = Skin.allCases
+            settings.skin = all[(all.firstIndex(of: settings.skin)! + 1) % all.count]
+        default: return false
+        }
+        return true
+    }
+
+    private func allowSleep() { if let awake { ProcessInfo.processInfo.endActivity(awake) }; awake = nil }
+
+    private func focus() {
+        guard let window else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) { focus() }
+
+    func windowDidExitFullScreen(_ notification: Notification) { window?.close() }
+
+    func windowWillClose(_ notification: Notification) {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        bag.removeAll(); allowSleep(); chrome.stop()
+        window?.contentView = nil
+        window = nil
+        NSCursor.setHiddenUntilMouseMoves(false)
+        DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
+    }
+
+    private func menu() -> NSMenu {
+        let bar = NSMenu(), item = NSMenuItem(), sub = NSMenu()
+        sub.addItem(ClosureItem("Exit Full Screen", key: "w") { [weak self] in self?.close() })
+        sub.addItem(.separator())
+        sub.addItem(ClosureItem("Quit Platter", key: "q") { NSApp.terminate(nil) })
+        item.submenu = sub; bar.addItem(item)
+        return bar
+    }
+}
+
 // MARK: - Snapshot mode (renders the widget to PNG for README / checks)
+
+var fullSize: CGSize?   // set by --snapshot out.png <skin> fullscreen-<width>x<height>
 
 @MainActor func snapshot(_ path: String, skin: Skin, layout: Layout, playing: Bool) {
     let np = NowPlaying(), settings = Settings(persist: false), spinner = Spinner(), ui = Interaction()
@@ -846,7 +777,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         np.setArtwork(art)
         spinner.angle = 30
     }
-    let view = FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui, interactive: false)
+    let view: AnyView
+    if let fullSize {
+        view = AnyView(FullScreenPlayer(np: np, spinner: spinner, ui: ui, skin: .constant(skin), showControls: true, onClose: {})
+            .frame(width: fullSize.width, height: fullSize.height))
+    } else {
+        view = AnyView(FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui, interactive: false))
+    }
     let renderer = ImageRenderer(content: view)
     renderer.scale = 2
     guard let cg = renderer.cgImage else { print("render failed"); exit(1) }
@@ -861,6 +798,10 @@ let args = CommandLine.arguments
 if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
     _ = NSApplication.shared
     let skin = args.count > i + 2 ? Skin(rawValue: args[i + 2]) ?? .walnut : .walnut
+    if args.count > i + 3, args[i + 3].hasPrefix("fullscreen") {
+        let wh = args[i + 3].split(separator: "-").last.map { $0.split(separator: "x").compactMap { Double($0) } } ?? []
+        fullSize = wh.count == 2 ? CGSize(width: wh[0], height: wh[1]) : CGSize(width: 1440, height: 900)
+    }
     let layout = args.count > i + 3 ? Layout(rawValue: args[i + 3]) ?? .full : .full
     let playing = !(args.count > i + 4 && args[i + 4] == "idle")
     MainActor.assumeIsolated { snapshot(args[i + 1], skin: skin, layout: layout, playing: playing) }
