@@ -20,7 +20,9 @@ targets:
     platform: macOS
     sources:
       - App/main.swift
+      - App/Customize.swift
       - Shared/Look.swift
+      - Shared/Style.swift
       - Shared/Player.swift
       - path: App/AppIcon.icns
         buildPhase: resources
@@ -32,8 +34,8 @@ targets:
         CFBundleName: Platter
         CFBundleDisplayName: Platter
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "3.0"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "3.1"
+        CFBundleVersion: "4"
         LSApplicationCategoryType: public.app-category.music
         LSUIElement: true
         NSHighResolutionCapable: true
@@ -54,6 +56,7 @@ targets:
     sources:
       - Widget/PlatterWidget.swift
       - Shared/Look.swift
+      - Shared/Style.swift
     entitlements:
       path: Widget/PlatterWidget.entitlements
       properties:
@@ -66,8 +69,8 @@ targets:
       properties:
         CFBundleName: Platter Widget
         CFBundleDisplayName: Platter
-        CFBundleShortVersionString: "3.0"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "3.1"
+        CFBundleVersion: "4"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -81,14 +84,15 @@ targets:
       - Phone/PlatterPhone.swift
       - Phone/Assets.xcassets
       - Shared/Look.swift
+      - Shared/Style.swift
       - Shared/Player.swift
     info:
       path: Phone/Info.plist
       properties:
         CFBundleName: Platter
         CFBundleDisplayName: Platter
-        CFBundleShortVersionString: "3.0"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "3.1"
+        CFBundleVersion: "4"
         NSAppleMusicUsageDescription: Platter shows the song playing in Music on its turntable and lets you control it.
         UILaunchScreen: {}
         UIRequiresFullScreen: true

@@ -33,13 +33,14 @@ func rgbColor(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> PlatformColor {
 }
 
 enum Skin: String, CaseIterable {
-    case walnut, midnight, arctic, album
+    case walnut, midnight, arctic, album, custom
     var title: String {
         switch self {
         case .walnut: return "Walnut"
         case .midnight: return "Midnight"
         case .arctic: return "Arctic"
         case .album: return "Album Colors"
+        case .custom: return "My Color"
         }
     }
 }
@@ -87,6 +88,19 @@ struct Palette {
     /// macOS paints every view as a white silhouette of its opacity, so the deck is drawn with
     /// translucent whites instead of solid colours, and without shadows (which would glow).
     var mono = false
+    // Customizable parts (see Style).
+    var style = Style()
+    var shine = Color.white                         // the bright edge of the metal
+    var vinylLight = Color(white: 0.09), vinylDark = Color(white: 0.04)
+    var groove = Color.white                        // dark grooves on a light record
+    var gap = 0.75                                  // how dark the gaps between tracks are
+    var customPlayIcon: Color?
+    /// Light text on a dark plinth?
+    var dark: Bool { wood || darkPlinth }
+    var darkPlinth = true
+
+    var labelRatio: CGFloat { Deck.labelRadius / Deck.radius * style.labelSize }
+    func font(_ size: CGFloat, _ weight: Font.Weight) -> Font { style.font(size * style.textSize, weight) }
 
     static let monochrome = Palette(top: .clear, bottom: .clear, text: .white, secondary: .white.opacity(0.6), accent: .white,
                                     button: .white.opacity(0.16), track: .white.opacity(0.2),
@@ -94,9 +108,33 @@ struct Palette {
 
     var shadow: Color { mono ? .clear : .black }
     var playFill: Color { mono ? .white.opacity(0.28) : accent }
-    var playIcon: Color { mono ? .white : (wood || text == .white ? .black.opacity(0.8) : .white) }
+    var playIcon: Color { mono ? .white : customPlayIcon ?? (dark ? .black.opacity(0.8) : .white) }
 
-    static func make(_ skin: Skin, art: PlatformColor?) -> Palette {
+    static func monochrome(_ style: Style) -> Palette { var p = monochrome; p.style = style; return p }
+
+    static func make(_ skin: Skin, art: PlatformColor?, style: Style = Style()) -> Palette {
+        var p = base(skin, art: art, style: style)
+        p.style = style
+        if let c = PlatformColor(hex: style.accent) {
+            p.accent = Color(c)
+            p.customPlayIcon = c.luminance > 0.55 ? .black.opacity(0.8) : .white
+        }
+        if let c = PlatformColor(hex: style.text) { p.text = Color(c); p.secondary = Color(c).opacity(0.62) }
+        if let c = PlatformColor(hex: style.vinyl) {
+            p.vinylLight = Color(c.hsb(b: { min(1, $0 * 1.08) }))
+            p.vinylDark = Color(c.hsb(b: { $0 * 0.72 }))
+            p.gap = c.luminance > 0.2 ? 0.28 : 0.7
+            if c.luminance > 0.55 { p.groove = .black }
+        }
+        if let c = PlatformColor(hex: style.metal) {
+            p.rimLight = Color(c.hsb(b: { min(1, $0 * 1.15) }))
+            p.rimDark = Color(c.hsb(b: { $0 * 0.5 }))
+            p.shine = Color(c.hsb(s: { $0 * 0.4 }, b: { min(1, $0 * 1.2 + 0.2) }))
+        }
+        return p
+    }
+
+    private static func base(_ skin: Skin, art: PlatformColor?, style: Style) -> Palette {
         let artAccent = art.map { Color($0.hsb(s: { max($0, 0.45) }, b: { min(max($0, 0.7), 0.95) })) }
         func hex(_ v: UInt32) -> Color {
             Color(.sRGB, red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
@@ -114,7 +152,14 @@ struct Palette {
             let ink = hex(0x24221F)
             return Palette(top: hex(0xF7F5F1), bottom: hex(0xDAD5CD), text: ink, secondary: ink.opacity(0.55),
                            accent: art.map { Color($0.hsb(s: { max($0, 0.5) }, b: { min(max($0, 0.55), 0.8) })) } ?? hex(0xE2683C),
-                           button: Color.black.opacity(0.07), track: Color.black.opacity(0.1))
+                           button: Color.black.opacity(0.07), track: Color.black.opacity(0.1), darkPlinth: false)
+        case .custom:
+            let c = PlatformColor(hex: style.plinth) ?? rgbColor(0.18, 0.36, 0.38)
+            let dark = c.luminance < 0.6
+            let ink = dark ? Color.white : Color(white: 0.13)
+            return Palette(top: Color(c.hsb(b: { min(1, $0 * 1.1) })), bottom: Color(c.hsb(b: { $0 * (dark ? 0.58 : 0.86) })),
+                           text: ink, secondary: ink.opacity(0.62), accent: artAccent ?? (dark ? hex(0xF0A54A) : hex(0xE2683C)),
+                           button: ink.opacity(0.12), track: Color.black.opacity(dark ? 0.3 : 0.12), darkPlinth: dark)
         case .album:
             let base = art ?? rgbColor(0.33, 0.38, 0.78)
             return Palette(top: Color(base.hsb(s: { min($0 * 1.1, 0.75) }, b: { min(max($0 * 0.75, 0.32), 0.6) })),
@@ -161,7 +206,7 @@ struct TonearmView: View {
 
     var body: some View {
         let p = Deck.pivot, L = Deck.armLength
-        let metal = LinearGradient(colors: [palette.rimLight, .white, palette.rimDark], startPoint: .leading, endPoint: .trailing)
+        let metal = LinearGradient(colors: [palette.rimLight, palette.shine, palette.rimDark], startPoint: .leading, endPoint: .trailing)
         ZStack(alignment: .topLeading) {
             // counterweight
             RoundedRectangle(cornerRadius: 3).fill(LinearGradient(colors: [Color(white: 0.35), Color(white: 0.12), Color(white: 0.3)],
@@ -174,7 +219,7 @@ struct TonearmView: View {
             RoundedRectangle(cornerRadius: 1.5).fill(Color(white: 0.12)).frame(width: 9, height: 12).offset(x: p.x - 4.5, y: p.y + L - 14)
             RoundedRectangle(cornerRadius: 1).fill(palette.rimLight).frame(width: 3, height: 9).offset(x: p.x + 6, y: p.y + L - 30)
             // pivot cap
-            Circle().fill(RadialGradient(colors: [.white, palette.rimDark], center: .topLeading, startRadius: 1, endRadius: 14))
+            Circle().fill(RadialGradient(colors: [palette.shine, palette.rimDark], center: .topLeading, startRadius: 1, endRadius: 14))
                 .frame(width: 14, height: 14).offset(x: p.x - 7, y: p.y - 7)
         }
         .frame(width: Deck.size.width, height: Deck.size.height, alignment: .topLeading)
@@ -234,22 +279,22 @@ struct DiscView: View {
     var body: some View {
         GeometryReader { g in
             let R = min(g.size.width, g.size.height) / 2
-            let labelR = R * Deck.labelRadius / Deck.radius
+            let labelR = R * palette.labelRatio
             let inner = labelR * 1.12, outer = R * 0.975
             ZStack {
                 if palette.mono {
                     Circle().fill(Color.white.opacity(0.1))
                 } else {
-                    Circle().fill(RadialGradient(colors: [Color(white: 0.09), Color(white: 0.04)], center: .center,
+                    Circle().fill(RadialGradient(colors: [palette.vinylLight, palette.vinylDark], center: .center,
                                                  startRadius: labelR, endRadius: R))
                 }
                 ForEach(0..<20, id: \.self) { i in
                     let r = inner + (outer - inner) * CGFloat(i) / 19
-                    Circle().stroke(Color.white.opacity(i % 3 == 0 ? 0.065 : 0.04), lineWidth: 0.7).frame(width: r * 2, height: r * 2)
+                    Circle().stroke(palette.groove.opacity(i % 3 == 0 ? 0.065 : 0.04), lineWidth: 0.7).frame(width: r * 2, height: r * 2)
                 }
                 ForEach([0.18, 0.39, 0.57, 0.76] as [CGFloat], id: \.self) { f in
                     let r = inner + (outer - inner) * f
-                    Circle().stroke(palette.mono ? Color.white.opacity(0.12) : Color.black.opacity(0.75), lineWidth: 1.8).frame(width: r * 2, height: r * 2)
+                    Circle().stroke(palette.mono ? Color.white.opacity(0.12) : Color.black.opacity(palette.gap), lineWidth: 1.8).frame(width: r * 2, height: r * 2)
                 }
                 Circle().stroke(Color.white.opacity(0.12), lineWidth: 1).padding(0.8)
                 Circle().fill(Color.white.opacity(0.04)).frame(width: R * 0.1, height: R * 0.1).offset(y: -R * 0.68)
@@ -260,9 +305,9 @@ struct DiscView: View {
                         ZStack {
                             Circle().fill(palette.mono ? Color.white.opacity(0.35) : palette.accent)
                             Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.7).padding(labelR * 0.18)
-                            Text("PLATTER").font(.system(size: labelR * 0.26, weight: .heavy, design: .rounded))
+                            Text("PLATTER").font(palette.style.font(labelR * 0.26, .heavy))
                                 .foregroundColor(.black.opacity(0.7)).offset(y: -labelR * 0.45)
-                            Text("33⅓ RPM").font(.system(size: labelR * 0.16, weight: .semibold, design: .rounded))
+                            Text("33⅓ RPM").font(palette.style.font(labelR * 0.16, .semibold))
                                 .foregroundColor(.black.opacity(0.55)).offset(y: labelR * 0.5)
                         }
                     }
@@ -278,10 +323,11 @@ struct DiscView: View {
 
 /// The static reflection on the vinyl (it stays put while the disc turns) plus the spindle.
 struct SheenView: View {
+    let palette: Palette
     var body: some View {
         GeometryReader { g in
             let R = min(g.size.width, g.size.height) / 2
-            let labelR = R * Deck.labelRadius / Deck.radius
+            let labelR = R * palette.labelRatio
             let clear = Color.white.opacity(0)
             ZStack {
                 AngularGradient(gradient: Gradient(stops: [
@@ -333,7 +379,7 @@ struct DeckArt<Disc: View>: View {
                 .offset(x: c.x - R - 6, y: c.y - R - 6)
             Circle().fill(palette.mono ? Color.clear : Color(white: 0.1)).frame(width: R * 2 + 4, height: R * 2 + 4).offset(x: c.x - R - 2, y: c.y - R - 2)
             disc().frame(width: R * 2, height: R * 2).offset(x: c.x - R, y: c.y - R)
-            SheenView().frame(width: R * 2, height: R * 2).offset(x: c.x - R, y: c.y - R)
+            SheenView(palette: palette).frame(width: R * 2, height: R * 2).offset(x: c.x - R, y: c.y - R)
             Group {
                 Circle().fill(LinearGradient(colors: [palette.rimLight.opacity(0.9), palette.rimDark], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 40, height: 40).shadow(color: palette.shadow.opacity(0.35), radius: 3, y: 2)
@@ -352,11 +398,13 @@ struct DeckArt<Disc: View>: View {
 }
 
 /// Tonearm angle for a playback position (rest when stopped, outer → inner groove over the song).
-func armAngle(playing: Bool, hasTrack: Bool, position: Double, duration: Double) -> Double {
+func armAngle(playing: Bool, hasTrack: Bool, position: Double, duration: Double, labelSize: Double = 1) -> Double {
     guard hasTrack, playing else { return Deck.restAngle }
     guard duration > 0 else { return Deck.outerGroove + 2 }
     let progress = min(1, max(0, position / duration))
-    return Deck.outerGroove + (Deck.innerGroove - Deck.outerGroove) * progress
+    // A bigger label leaves less groove, so the arm stops before reaching it.
+    let inner = labelSize > 1.05 ? Deck.angle(forGroove: max(Deck.radius * 0.46, Deck.labelRadius * labelSize * 1.12 + 4)) : Deck.innerGroove
+    return Deck.outerGroove + (inner - Deck.outerGroove) * progress
 }
 
 /// The plinth: skin gradient, wood grain for Walnut, and a soft bevel.
@@ -391,6 +439,7 @@ struct PlayerState: Codable, Equatable {
     var position: Double = 0
     var positionDate = Date()
     var skin = Skin.walnut.rawValue
+    var style: Style?
     var artColor: [Double]?
     var artworkID: String?
 

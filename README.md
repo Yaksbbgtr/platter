@@ -23,6 +23,21 @@ Click the record or the play button to play or pause, and use ◀◀ / ▶▶ to
 
 You can turn off the floating turntable from the menu bar (◉ → Floating Turntable) if you only want the widget.
 
+## Customize
+
+<p align="center">
+  <img src="docs/custom-navy.png" width="260" alt="Navy plinth, red record, gold tonearm, Futura">
+  <img src="docs/custom-green.png" width="260" alt="Green plinth and record, American Typewriter">
+</p>
+
+◉ → **Customize…** has a live preview and covers:
+
+- **Font:** any font installed on your Mac.
+- **Colors:** plinth (choose the **My Color** style), buttons and progress bar, text, record, and tonearm and platter. Each can be automatic.
+- **Sizes:** text, buttons, progress bar, album art on the record, the floating turntable and the full-screen turntable.
+
+Fonts and sizes also apply to the desktop widget. Colors show there only with the Full-color widget style, because macOS removes colors from clear and monochrome widgets.
+
 ## Full screen on the Mac
 
 <p align="center"><img src="docs/fullscreen.png" width="620" alt="Full screen, Walnut"></p>
@@ -47,7 +62,7 @@ To install it: run `xcodegen generate`, open `Platter.xcodeproj`, choose your te
 | Drag the plinth | Move the widget |
 | Right-click, or the ◉ menu bar icon | Settings |
 
-**Settings:** Style (Walnut, Midnight, Arctic, Album Colors, which tints the plinth from the cover art), Size (S/M/L), Layout (turntable with controls, or just the record with controls on hover), Position (on the desktop under your windows, or floating above them), and Launch at Login.
+**Settings:** Style (Walnut, Midnight, Arctic, Album Colors, which tints the plinth from the cover art, or My Color), Size (Tiny to Huge), Layout (turntable with controls, or just the record with controls on hover), Position (on the desktop under your windows, or floating above them), and Launch at Login.
 
 ## Build
 
@@ -57,7 +72,7 @@ Needs Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install
 ./install.sh                    # builds, installs to ~/Applications and starts Platter
 ```
 
-`Platter --snapshot out.png [walnut|midnight|arctic|album] [full|record] [idle]` renders the widget to a PNG. The screenshots above were made this way.
+`Platter --snapshot out.png [walnut|midnight|arctic|album|custom] [full|record] [idle] [--style style.json]` renders the widget to a PNG. The screenshots above were made this way.
 
 ## How it works
 

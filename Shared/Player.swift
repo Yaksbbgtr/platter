@@ -69,7 +69,7 @@ struct RecordView: View {
     }
 
     private func label(side: CGFloat) -> some View {
-        let R = side / 2, labelR = R * Deck.labelRadius / Deck.radius
+        let R = side / 2, labelR = R * palette.labelRatio
         return ZStack {
             Circle().fill(Color.white.opacity(0.035)).frame(width: R * 0.1, height: R * 0.1).offset(y: -R * 0.68)
             Group {
@@ -79,9 +79,9 @@ struct RecordView: View {
                     ZStack {
                         Circle().fill(palette.accent)
                         Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.7 * scale).padding(labelR * 0.18)
-                        Text("PLATTER").font(.system(size: labelR * 0.26, weight: .heavy, design: .rounded))
+                        Text("PLATTER").font(palette.style.font(labelR * 0.26, .heavy))
                             .foregroundColor(.black.opacity(0.7)).offset(y: -labelR * 0.45)
-                        Text("33⅓ RPM").font(.system(size: labelR * 0.16, weight: .semibold, design: .rounded))
+                        Text("33⅓ RPM").font(palette.style.font(labelR * 0.16, .semibold))
                             .foregroundColor(.black.opacity(0.55)).offset(y: labelR * 0.5)
                     }
                 }
@@ -96,16 +96,16 @@ struct RecordView: View {
     private func drawGrooves(_ ctx: inout GraphicsContext, size: CGSize) {
         func circle(_ r: CGFloat) -> Path { Path(ellipseIn: CGRect(x: size.width / 2 - r, y: size.height / 2 - r, width: r * 2, height: r * 2)) }
         let c = CGPoint(x: size.width / 2, y: size.height / 2), R = min(size.width, size.height) / 2
-        let labelR = R * Deck.labelRadius / Deck.radius
-        ctx.fill(circle(R), with: .radialGradient(Gradient(colors: [Color(white: 0.09), Color(white: 0.04)]),
+        let labelR = R * palette.labelRatio
+        ctx.fill(circle(R), with: .radialGradient(Gradient(colors: [palette.vinylLight, palette.vinylDark]),
                                                   center: c, startRadius: labelR, endRadius: R))
         let inner = labelR * 1.12, outer = R * 0.975, count = scale > 2 ? 128 : 64
         for i in 0..<count {
             let r = inner + (outer - inner) * CGFloat(i) / CGFloat(count - 1)
-            ctx.stroke(circle(r), with: .color(.white.opacity(i % 4 == 0 ? 0.055 : 0.03)), lineWidth: 0.6 * max(1, scale * 0.6))
+            ctx.stroke(circle(r), with: .color(palette.groove.opacity(i % 4 == 0 ? 0.055 : 0.03)), lineWidth: 0.6 * max(1, scale * 0.6))
         }
         for f in [0.18, 0.39, 0.57, 0.76] as [CGFloat] {
-            ctx.stroke(circle(inner + (outer - inner) * f), with: .color(.black.opacity(0.75)), lineWidth: 1.8 * scale)
+            ctx.stroke(circle(inner + (outer - inner) * f), with: .color(.black.opacity(palette.gap)), lineWidth: 1.8 * scale)
         }
         ctx.stroke(circle(R - 0.8 * scale), with: .color(.white.opacity(0.12)), lineWidth: scale)
     }
@@ -121,7 +121,8 @@ struct TurntableDeck: View {
     private func arm(_ date: Date) -> Double {
         var t = np.live(at: date) + (ui.scrubOffset ?? 0)
         if let b = ui.barScrub { t = b * np.duration }
-        return armAngle(playing: np.playing || ui.scrubOffset != nil, hasTrack: np.hasTrack, position: t, duration: np.duration)
+        return armAngle(playing: np.playing || ui.scrubOffset != nil, hasTrack: np.hasTrack, position: t, duration: np.duration,
+                        labelSize: palette.style.labelSize)
     }
 
     var body: some View {
@@ -137,7 +138,7 @@ struct TurntableDeck: View {
         .overlay(alignment: .topLeading) {
             if let s = ui.scrubOffset {
                 let t = min(max(0, np.live() + s), np.duration > 0 ? np.duration : .infinity)
-                Text(formatTime(t)).font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                Text(formatTime(t)).font(palette.style.font(12, .semibold).monospacedDigit())
                     .foregroundColor(.white).padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Capsule().fill(.black.opacity(0.65)))
                     .frame(width: 80).offset(x: c.x - 40, y: c.y + R * 0.52).allowsHitTesting(false)
@@ -184,13 +185,14 @@ struct ControlButton: View {
     let palette: Palette
     var u: CGFloat = 1
     let action: () -> Void
+    private var k: CGFloat { u * palette.style.buttonSize }
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size * u, weight: .semibold))
-                .foregroundColor(big ? (palette.wood || palette.text == .white ? .black.opacity(0.8) : .white) : palette.text)
-                .frame(width: (big ? 42 : 34) * u, height: (big ? 42 : 34) * u)
+                .font(.system(size: size * k, weight: .semibold))
+                .foregroundColor(big ? palette.playIcon : palette.text)
+                .frame(width: (big ? 42 : 34) * k, height: (big ? 42 : 34) * k)
                 .background(Circle().fill(big ? palette.accent : palette.button))
                 .contentShape(Circle())
         }
@@ -221,20 +223,20 @@ struct ProgressBar: View {
                         Capsule().fill(palette.track)
                         Capsule().fill(palette.accent).frame(width: max(5 * u, g.size.width * fraction))
                     }
-                    .frame(height: (ui.barScrub == nil ? 5 : 7) * u)
+                    .frame(height: (ui.barScrub == nil ? 5 : 7) * u * palette.style.barSize)
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { v in if np.duration > 0 { ui.barScrub = min(1, max(0, v.location.x / g.size.width)) } }
                         .onEnded { _ in if let b = ui.barScrub { np.seek(b * np.duration) }; ui.barScrub = nil })
                 }
-                .frame(height: 12 * u)
+                .frame(height: max(12, 7 * palette.style.barSize) * u)
                 HStack {
                     Text(formatTime(np.duration > 0 ? fraction * np.duration : now))
                     Spacer()
                     Text(np.duration > 0 ? "-" + formatTime(np.duration * (1 - fraction)) : (np.hasTrack ? "LIVE" : ""))
                 }
-                .font(.system(size: 10 * u, weight: .medium, design: .rounded).monospacedDigit())
+                .font(palette.font(10 * u, .medium).monospacedDigit())
                 .foregroundColor(palette.secondary)
                 .allowsHitTesting(false)
             }
@@ -250,12 +252,13 @@ struct FullScreenPlayer: View {
     @ObservedObject var spinner: Spinner
     @ObservedObject var ui: Interaction
     @Binding var skin: Skin
+    var style = Style()
     /// Buttons and style swatches; they fade away after a few seconds so only the turntable and song remain.
     var showControls: Bool
     var onClose: (() -> Void)?
 
     var body: some View {
-        let palette = Palette.make(skin, art: np.artColor)
+        let palette = Palette.make(skin, art: np.artColor, style: style)
         GeometryReader { g in
             let w = g.size.width, h = g.size.height
             Group {
@@ -285,7 +288,7 @@ struct FullScreenPlayer: View {
 
     private func landscape(_ w: CGFloat, _ h: CGFloat, _ palette: Palette) -> some View {
         let pad = min(w, h) * 0.055
-        let s = min((h - pad * 2) / Deck.size.height, w * 0.6 / Deck.size.width)
+        let s = min((h - pad * 2) / Deck.size.height, w * 0.6 / Deck.size.width) * style.fullScreenDeck
         let column = min(w - Deck.size.width * s - pad * 3, 560)
         // Sized to the column, but never taller than a short (phone) screen allows.
         let u = min(column / 420, h / 430)
@@ -298,7 +301,7 @@ struct FullScreenPlayer: View {
 
     private func portrait(_ w: CGFloat, _ h: CGFloat, _ palette: Palette) -> some View {
         let u = min(w / 420, h / 800)
-        let s = min((w - 24) / Deck.size.width, h * 0.56 / Deck.size.height)
+        let s = min((w - 24) / Deck.size.width, h * 0.56 / Deck.size.height) * min(1, style.fullScreenDeck)
         return VStack(spacing: 0) {
             Spacer(minLength: 0)
             deck(s, palette)
@@ -313,12 +316,12 @@ struct FullScreenPlayer: View {
         return VStack(alignment: alignment, spacing: 22 * u) {
             VStack(alignment: alignment, spacing: 7 * u) {
                 Text(np.hasTrack ? (np.title.isEmpty ? (np.source ?? "") : np.title) : "Nothing playing")
-                    .font(.system(size: 32 * u, weight: .bold, design: .rounded)).foregroundColor(palette.text)
+                    .font(palette.font(32 * u, .bold)).foregroundColor(palette.text)
                     .lineLimit(2).minimumScaleFactor(0.7)
                 Text(np.hasTrack ? np.artist : np.idleHint)
-                    .font(.system(size: 19 * u, weight: .semibold, design: .rounded)).foregroundColor(palette.text.opacity(0.85)).lineLimit(center ? 2 : 1)
+                    .font(palette.font(19 * u, .semibold)).foregroundColor(palette.text.opacity(0.85)).lineLimit(center ? 2 : 1)
                 if np.hasTrack && !np.album.isEmpty {
-                    Text(np.album).font(.system(size: 15 * u, weight: .medium, design: .rounded)).foregroundColor(palette.secondary).lineLimit(1)
+                    Text(np.album).font(palette.font(15 * u, .medium)).foregroundColor(palette.secondary).lineLimit(1)
                 }
             }
             .multilineTextAlignment(center ? .center : .leading)
@@ -333,7 +336,7 @@ struct FullScreenPlayer: View {
                 }
                 HStack(spacing: 14 * u) {
                     ForEach(Skin.allCases, id: \.self) { choice in
-                        let look = Palette.make(choice, art: np.artColor)
+                        let look = Palette.make(choice, art: np.artColor, style: style)
                         Button { skin = choice } label: {
                             Circle().fill(LinearGradient(colors: [look.top, look.bottom], startPoint: .top, endPoint: .bottom))
                                 .overlay(Circle().strokeBorder(palette.text.opacity(choice == skin ? 0.95 : 0.25), lineWidth: choice == skin ? 2 : 1))
@@ -364,7 +367,7 @@ struct FullScreenBackground: View {
                 if palette.wood { WoodGrain() }
                 RadialGradient(colors: [palette.accent.opacity(0.16), palette.accent.opacity(0)], center: .center,
                                startRadius: 0, endRadius: max(g.size.width, g.size.height) * 0.6)
-                RadialGradient(colors: [.black.opacity(0), .black.opacity(palette.text == .white || palette.wood ? 0.35 : 0.08)], center: .center,
+                RadialGradient(colors: [.black.opacity(0), .black.opacity(palette.dark ? 0.35 : 0.08)], center: .center,
                                startRadius: min(g.size.width, g.size.height) * 0.4, endRadius: max(g.size.width, g.size.height) * 0.72)
             }
         }

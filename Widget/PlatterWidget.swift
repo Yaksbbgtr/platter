@@ -30,10 +30,10 @@ struct PreviousTrackIntent: AppIntent {
 // MARK: - Per-widget style (right-click the widget → Edit "Platter")
 
 enum StyleChoice: String, AppEnum {
-    case app, walnut, midnight, arctic, album
+    case app, walnut, midnight, arctic, album, custom
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Style")
     static var caseDisplayRepresentations: [StyleChoice: DisplayRepresentation] = [
-        .app: "Same as the app", .walnut: "Walnut", .midnight: "Midnight", .arctic: "Arctic", .album: "Album Colors",
+        .app: "Same as the app", .walnut: "Walnut", .midnight: "Midnight", .arctic: "Arctic", .album: "Album Colors", .custom: "My Color",
     ]
 }
 
@@ -100,7 +100,8 @@ struct DeckProvider: AppIntentTimelineProvider {
 
     private func entry(_ st: PlayerState, art: NSImage?, skin: Skin, at date: Date, spin: Double) -> DeckEntry {
         DeckEntry(date: date, state: st, artwork: art, skin: skin, spin: spin,
-                  arm: armAngle(playing: st.playing, hasTrack: st.hasTrack, position: st.live(at: date), duration: st.duration))
+                  arm: armAngle(playing: st.playing, hasTrack: st.hasTrack, position: st.live(at: date), duration: st.duration,
+                                labelSize: st.style?.labelSize ?? 1))
     }
 }
 
@@ -157,11 +158,11 @@ struct TrackText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(state.hasTrack ? (state.title.isEmpty ? (state.source ?? "") : state.title) : "Nothing playing")
-                .font(.system(size: titleSize, weight: .semibold, design: .rounded)).foregroundColor(palette.text)
+                .font(palette.font(titleSize, .semibold)).foregroundColor(palette.text)
             Text(state.hasTrack ? [state.artist, state.album].filter { !$0.isEmpty }.joined(separator: " — ") : "Open Platter and play some music")
-                .font(.system(size: titleSize * 0.8, weight: .medium, design: .rounded)).foregroundColor(palette.secondary)
+                .font(palette.font(titleSize * 0.8, .medium)).foregroundColor(palette.secondary)
         }
-        .lineLimit(1)
+        .lineLimit(1).minimumScaleFactor(0.75)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -189,7 +190,7 @@ struct WidgetProgress: View {
                         .animation(.linear(duration: DeckProvider.step), value: fraction)
                 }
             }
-            .frame(height: 4)
+            .frame(height: 4 * palette.style.barSize)
             if showTimes {
                 HStack {
                     if state.playing && state.duration > 0 {
@@ -205,7 +206,7 @@ struct WidgetProgress: View {
                         Text(state.duration > 0 ? formatTime(state.duration - pos) : "")
                     }
                 }
-                .font(.system(size: 9.5, weight: .medium, design: .rounded).monospacedDigit())
+                .font(palette.font(9.5, .medium).monospacedDigit())
                 .foregroundColor(palette.secondary)
             }
         }
@@ -247,12 +248,13 @@ struct PlatterWidgetView: View {
 
     var body: some View {
         let mono = monoOverride || renderingMode != .fullColor
-        let palette = mono ? Palette.monochrome : Palette.make(entry.skin, art: entry.state.artNSColor)
+        let style = entry.state.style ?? Style()
+        let palette = mono ? Palette.monochrome(style) : Palette.make(entry.skin, art: entry.state.artNSColor, style: style)
         GeometryReader { g in
             switch family {
             case .systemSmall:
                 // Just the turntable and the song; click the record to play/pause.
-                let s = min(g.size.width / Deck.size.width, (g.size.height - 30) / Deck.size.height)
+                let s = min(g.size.width / Deck.size.width, (g.size.height - 40 * style.textSize) / Deck.size.height)
                 VStack(spacing: 2) {
                     ScaledDeck(entry: entry, palette: palette, scale: s)
                     TrackText(state: entry.state, palette: palette, titleSize: 11.5).padding(.horizontal, 14)
@@ -267,7 +269,7 @@ struct PlatterWidgetView: View {
                         Spacer(minLength: 6)
                         WidgetProgress(state: entry.state, date: entry.date, palette: palette)
                         Spacer(minLength: 6)
-                        WidgetControls(playing: entry.state.playing, palette: palette, size: 36)
+                        WidgetControls(playing: entry.state.playing, palette: palette, size: min(36 * style.buttonSize, (g.size.width - Deck.size.width * s - 22) / 3.6))
                             .frame(maxWidth: .infinity)
                     }
                     .padding(.vertical, 18)
@@ -275,7 +277,7 @@ struct PlatterWidgetView: View {
                 }
             default:
                 // The deck takes what the song info and controls leave over.
-                let s = min(g.size.width / Deck.size.width, (g.size.height - 138) / Deck.size.height)
+                let s = min(g.size.width / Deck.size.width, (g.size.height - 138 - 48 * (style.textSize - 1) - 42 * (style.buttonSize - 1) - 4 * (style.barSize - 1)) / Deck.size.height)
                 VStack(spacing: 0) {
                     ScaledDeck(entry: entry, palette: palette, scale: s)
                         .padding(.top, 4)
@@ -285,7 +287,7 @@ struct PlatterWidgetView: View {
                         Spacer(minLength: 8)
                         WidgetProgress(state: entry.state, date: entry.date, palette: palette)
                         Spacer(minLength: 8)
-                        WidgetControls(playing: entry.state.playing, palette: palette, size: 42)
+                        WidgetControls(playing: entry.state.playing, palette: palette, size: 42 * style.buttonSize)
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 18)

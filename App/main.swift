@@ -38,7 +38,9 @@ final class Settings: ObservableObject {
     @Published var placement: Placement { didSet { d.set(placement.rawValue, forKey: "placement") } }
     @Published var scale: Double { didSet { d.set(scale, forKey: "scale") } }
     @Published var visible: Bool { didSet { d.set(visible, forKey: "visible") } }
-    static let sizes: [(String, Double)] = [("Small", 0.75), ("Medium", 1.0), ("Large", 1.3)]
+    @Published var style: Style { didSet { if let data = try? JSONEncoder().encode(style) { d.set(data, forKey: "style") } } }
+    static let sizes: [(String, Double)] = [("Tiny", 0.55), ("Small", 0.75), ("Medium", 1.0), ("Large", 1.3), ("Extra Large", 1.7), ("Huge", 2.2)]
+    static let scaleRange = 0.5...2.5
 
     /// `persist: false` (snapshot mode) keeps changes out of the user's real preferences.
     init(persist: Bool = true) {
@@ -46,7 +48,8 @@ final class Settings: ObservableObject {
         skin = Skin(rawValue: d.string(forKey: "skin") ?? "") ?? .walnut
         layout = Layout(rawValue: d.string(forKey: "layout") ?? "") ?? .full
         placement = Placement(rawValue: d.string(forKey: "placement") ?? "") ?? .desktop
-        scale = d.object(forKey: "scale") as? Double ?? 1
+        scale = min(max(d.object(forKey: "scale") as? Double ?? 1, Self.scaleRange.lowerBound), Self.scaleRange.upperBound)
+        style = d.data(forKey: "style").flatMap { try? JSONDecoder().decode(Style.self, from: $0) } ?? Style()
         visible = d.object(forKey: "visible") as? Bool ?? true
     }
 }
@@ -296,9 +299,9 @@ struct InfoPanel: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(np.hasTrack ? (np.title.isEmpty ? (np.source ?? "") : np.title) : "Nothing playing")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundColor(palette.text)
+                        .font(palette.font(14, .semibold)).foregroundColor(palette.text)
                     Text(np.hasTrack ? [np.artist, np.album].filter { !$0.isEmpty }.joined(separator: " — ") : np.idleHint)
-                        .font(.system(size: 11.5, weight: .medium, design: .rounded)).foregroundColor(palette.secondary)
+                        .font(palette.font(11.5, .medium)).foregroundColor(palette.secondary)
                 }
                 .lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -344,16 +347,18 @@ struct FloatingWidget: View {
     var interactive = true
     var openFullScreen: (() -> Void)?
 
-    static func cardSize(_ layout: Layout) -> CGSize {
-        CGSize(width: Deck.size.width, height: layout == .full ? Deck.size.height + 150 : Deck.size.height)
+    static func cardSize(_ layout: Layout, _ style: Style) -> CGSize {
+        // Bigger text, buttons or progress bar make the card taller.
+        let info = 150 + 48 * (style.textSize - 1) + 42 * (style.buttonSize - 1) + max(0, 7 * style.barSize - 12)
+        return CGSize(width: Deck.size.width, height: layout == .full ? Deck.size.height + info.rounded(.up) : Deck.size.height)
     }
 
     var body: some View {
-        let palette = Palette.make(settings.skin, art: np.artColor)
-        let size = Self.cardSize(settings.layout)
+        let palette = Palette.make(settings.skin, art: np.artColor, style: settings.style)
+        let size = Self.cardSize(settings.layout, settings.style)
         let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
         VStack(spacing: 0) {
-            TurntableDeck(np: np, spinner: spinner, ui: ui, palette: palette)
+            TurntableDeck(np: np, spinner: spinner, ui: ui, palette: palette, scale: max(1, settings.scale))
             if settings.layout == .full { InfoPanel(np: np, ui: ui, palette: palette, openFullScreen: openFullScreen) }
         }
         .frame(width: size.width, height: size.height, alignment: .top)
@@ -375,8 +380,8 @@ struct FloatingWidget: View {
     private func hoverBar(_ palette: Palette) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(np.title).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white)
-                Text(np.artist).font(.system(size: 10.5, weight: .medium, design: .rounded)).foregroundColor(.white.opacity(0.65))
+                Text(np.title).font(palette.font(12, .semibold)).foregroundColor(.white)
+                Text(np.artist).font(palette.font(10.5, .medium)).foregroundColor(.white.opacity(0.65))
             }
             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
             Button(action: np.previous) { Image(systemName: "backward.fill") }
@@ -458,10 +463,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         np.$playing.sink { [weak self] p in self?.spinner.setPlaying(p) }.store(in: &bag)
         settings.$layout.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.resize() } }.store(in: &bag)
-        settings.$scale.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.resize() } }.store(in: &bag)
+        settings.$scale.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.resize(animate: false) } }.store(in: &bag)
+        settings.$style.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.resize(animate: false) } }.store(in: &bag)
         settings.$placement.dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.applyPlacement() } }.store(in: &bag)
         settings.$visible.sink { [weak self] v in DispatchQueue.main.async { v ? self?.panel.orderFront(nil) : self?.panel.orderOut(nil) } }.store(in: &bag)
-        np.objectWillChange.merge(with: settings.$skin.map { _ in () }.eraseToAnyPublisher())
+        np.objectWillChange.merge(with: settings.$skin.map { _ in () }.eraseToAnyPublisher(), settings.$style.map { _ in () }.eraseToAnyPublisher())
             .debounce(for: .seconds(0.4), scheduler: RunLoop.main)
             .sink { [weak self] in self?.publishState() }.store(in: &bag)
         listenForWidgetCommands()
@@ -488,6 +494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         st.playing = np.playing; st.duration = np.duration
         st.position = np.live(at: now); st.positionDate = now
         st.skin = settings.skin.rawValue
+        st.style = settings.style
         if let c = np.artColor?.usingColorSpace(.sRGB) { st.artColor = [c.redComponent, c.greenComponent, c.blueComponent].map(Double.init) }
         if np.artworkVersion != lastArtworkVersion {
             lastArtworkVersion = np.artworkVersion
@@ -553,13 +560,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var rootView: RootView { RootView(np: np, spinner: spinner, settings: settings, ui: ui, openFullScreen: { [weak self] in self?.fullScreen.open() }) }
     lazy var fullScreen = FullScreenController(np: np, spinner: spinner, settings: settings)
 
+    lazy var customize = CustomizeController(np: np, spinner: spinner, settings: settings)
+
     /// Clicking the desktop widget's background opens platter://fullscreen.
     func application(_ application: NSApplication, open urls: [URL]) {
         if urls.contains(where: { $0.scheme == "platter" && $0.host == "fullscreen" }) { fullScreen.open() }
+        if urls.contains(where: { $0.scheme == "platter" && $0.host == "customize" }) { customize.open() }
     }
 
-    func resize(initial: Bool = false) {
-        let card = FloatingWidget.cardSize(settings.layout)
+    func resize(initial: Bool = false, animate: Bool = true) {
+        let card = FloatingWidget.cardSize(settings.layout, settings.style)
         let s = settings.scale
         let size = NSSize(width: (card.width + 56) * s, height: (card.height + 56) * s)
         if initial, let screen = NSScreen.main {
@@ -567,7 +577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.setFrame(NSRect(x: v.maxX - size.width - 8, y: v.minY + 8, width: size.width, height: size.height), display: true)
         } else {
             let top = panel.frame.maxY
-            panel.setFrame(NSRect(x: panel.frame.minX, y: top - size.height, width: size.width, height: size.height), display: true, animate: true)
+            panel.setFrame(NSRect(x: panel.frame.minX, y: top - size.height, width: size.width, height: size.height), display: true, animate: animate && settings.visible)
         }
     }
 
@@ -599,6 +609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.addItem(ClosureItem("Floating Turntable", checked: settings.visible) { [settings] in settings.visible.toggle() })
         m.addItem(ClosureItem("Add Desktop Widget…") { [weak self] in self?.showWidgetHelp() })
         m.addItem(.separator())
+        m.addItem(ClosureItem("Customize…", key: ",") { [weak self] in self?.customize.open() })
         m.addItem(submenu("Style", Skin.allCases.map { s in ClosureItem(s.title, checked: settings.skin == s) { [settings] in settings.skin = s } }))
         m.addItem(submenu("Size", Settings.sizes.map { s in ClosureItem(s.0, checked: abs(settings.scale - s.1) < 0.01) { [settings] in settings.scale = s.1 } }))
         m.addItem(submenu("Layout", Layout.allCases.map { l in ClosureItem(l.title, checked: settings.layout == l) { [settings] in settings.layout = l } }))
@@ -644,7 +655,7 @@ struct MacFullScreenView: View {
     let ui: Interaction
     let close: () -> Void
     var body: some View {
-        FullScreenPlayer(np: np, spinner: spinner, ui: ui, skin: $settings.skin, showControls: chrome.visible, onClose: close)
+        FullScreenPlayer(np: np, spinner: spinner, ui: ui, skin: $settings.skin, style: settings.style, showControls: chrome.visible, onClose: close)
     }
 }
 
@@ -761,6 +772,10 @@ var fullSize: CGSize?   // set by --snapshot out.png <skin> fullscreen-<width>x<
 @MainActor func snapshot(_ path: String, skin: Skin, layout: Layout, playing: Bool) {
     let np = NowPlaying(), settings = Settings(persist: false), spinner = Spinner(), ui = Interaction()
     settings.skin = skin; settings.layout = layout
+    settings.style = Style()
+    if let i = args.firstIndex(of: "--style"), i + 1 < args.count, let data = FileManager.default.contents(atPath: args[i + 1]) {
+        settings.style = try! JSONDecoder().decode(Style.self, from: data)
+    }
     if playing {
         let art = NSImage(size: NSSize(width: 300, height: 300), flipped: false) { r in
             NSGradient(colors: [NSColor(srgbRed: 0.95, green: 0.45, blue: 0.3, alpha: 1), NSColor(srgbRed: 0.45, green: 0.2, blue: 0.6, alpha: 1)])!.draw(in: r, angle: -60)
@@ -779,7 +794,7 @@ var fullSize: CGSize?   // set by --snapshot out.png <skin> fullscreen-<width>x<
     }
     let view: AnyView
     if let fullSize {
-        view = AnyView(FullScreenPlayer(np: np, spinner: spinner, ui: ui, skin: .constant(skin), showControls: true, onClose: {})
+        view = AnyView(FullScreenPlayer(np: np, spinner: spinner, ui: ui, skin: .constant(skin), style: settings.style, showControls: true, onClose: {})
             .frame(width: fullSize.width, height: fullSize.height))
     } else {
         view = AnyView(FloatingWidget(np: np, spinner: spinner, settings: settings, ui: ui, interactive: false))
