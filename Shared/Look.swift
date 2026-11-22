@@ -308,7 +308,7 @@ struct Ring: Shape {
     }
 }
 
-/// The whole deck in its 300 × 250 coordinate space: platter, record, arm and power light.
+/// The whole deck in its 300 × 250 coordinate space: platter, record and arm.
 /// `disc` is the spinning record (the app passes its live Canvas, the widget a DiscView).
 struct DeckArt<Disc: View>: View {
     let palette: Palette
@@ -344,12 +344,6 @@ struct DeckArt<Disc: View>: View {
                     .shadow(color: palette.shadow.opacity(0.4), radius: playing ? 2 : 4, x: -2, y: playing ? 3 : 6)
                     .rotationEffect(.degrees(armAngle), anchor: UnitPoint(x: Deck.pivot.x / Deck.size.width, y: Deck.pivot.y / Deck.size.height))
                     .animation(armAnimation, value: armAngle)
-                HStack(spacing: 6) {
-                    Circle().fill(playing ? palette.accent : palette.secondary.opacity(0.4)).frame(width: 6, height: 6)
-                        .shadow(color: playing && !palette.mono ? palette.accent : .clear, radius: 4)
-                    Text("33⅓").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundColor(palette.secondary)
-                }
-                .offset(x: 236, y: 228)
             }
             .allowsHitTesting(false)
         }

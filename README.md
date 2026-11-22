@@ -54,9 +54,7 @@ To install it: run `xcodegen generate`, open `Platter.xcodeproj`, choose your te
 Needs Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
 ```sh
-./build.sh                      # → build/Platter.app (app + widget extension)
-cp -R build/Platter.app ~/Applications/
-open ~/Applications/Platter.app
+./install.sh                    # builds, installs to ~/Applications and starts Platter
 ```
 
 `Platter --snapshot out.png [walnut|midnight|arctic|album] [full|record] [idle]` renders the widget to a PNG. The screenshots above were made this way.
